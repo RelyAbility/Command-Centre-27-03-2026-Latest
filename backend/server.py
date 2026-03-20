@@ -396,7 +396,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
     
     await db.create_organisation("Riverside Manufacturing Group", id="rmg-001")
     
-    site = await db.create_site({
+    await db.create_site({
         "id": "site-riverside",
         "organisation_id": "rmg-001",
         "name": "Riverside Plant - Building A",
@@ -782,7 +782,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "asset": "Main Air Compressor",
                     "issue": "22% energy drift for 3 hours",
                     "band": "HIGH",
-                    "confidence": "89%",
+                    "confidence_label": "strong",
                     "var_per_day": 151.20,
                     "recommended_action": "Inspect inlet filter and check for leaks in downstream piping",
                     "state_id": comp_state["id"]
@@ -792,7 +792,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "asset": "Air Handling Unit 1",
                     "issue": "12% efficiency drop for 6 hours",
                     "band": "MEDIUM",
-                    "confidence": "76%",
+                    "confidence_label": "moderate",
                     "var_per_day": 42.50,
                     "recommended_action": "Check filter differential pressure and consider filter replacement",
                     "state_id": ahu_state["id"]
@@ -802,7 +802,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "asset": "Process Chiller 1",
                     "issue": "8% energy drift for 45 minutes",
                     "band": "LOW",
-                    "confidence": "65%",
+                    "confidence_label": "moderate",
                     "var_per_day": 18.90,
                     "recommended_action": "Monitor - may self-correct with load changes",
                     "state_id": chiller_state["id"]
@@ -1549,8 +1549,11 @@ async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
     2. What to do about it? → Top priority actions with recoverable value + confidence
     3. What has been recovered? → Recently verified outcomes with savings
     4. Is the system working? → Loop integrity
+    
+    This endpoint uses HOW lens discipline for confidence (labels not raw values).
     """
     from sqlalchemy import text as sql_text
+    from ramp.lenses.helpers import confidence_to_label, confidence_band_to_label
     
     # 1. CURRENT VALUE AT RISK
     priorities = await db.get_active_priorities()
@@ -1591,6 +1594,19 @@ async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
             except Exception:
                 drivers = []
         
+        # Get confidence label (NOT raw value) - Lens Contract compliant
+        if state:
+            confidence_raw = state.get("confidence")
+            confidence_band = state.get("confidence_band")
+            if confidence_raw is not None and isinstance(confidence_raw, (int, float)):
+                confidence_label = confidence_to_label(confidence_raw)
+            elif confidence_band:
+                confidence_label = confidence_band_to_label(confidence_band)
+            else:
+                confidence_label = "unknown"
+        else:
+            confidence_label = "unknown"
+        
         top_actions.append({
             "priority_id": p["id"],
             "state_id": p.get("state_id"),
@@ -1599,10 +1615,10 @@ async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
             "priority_band": p.get("priority_band"),
             "state_type": state.get("state_type") if state else "Unknown",
             "state_family": state.get("state_family") if state else "Unknown",
+            "severity_band": state.get("severity_band") if state else "Unknown",
             "value_at_risk_per_day": economic.get("value_at_risk_per_day", 0),
             "value_recoverable_per_day": economic.get("value_recoverable_per_day", 0),
-            "confidence": state.get("confidence", 0) if state else 0,
-            "confidence_band": state.get("confidence_band", "UNKNOWN") if state else "UNKNOWN",
+            "confidence_label": confidence_label,  # Label not raw value
             "drivers": drivers[:2]  # Top 2 drivers only
         })
     
@@ -1651,6 +1667,16 @@ async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
                 completed_at = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
             time_to_verify_hours = round((verified_at - completed_at).total_seconds() / 3600, 1)
         
+        # Get confidence label (NOT raw value) - Lens Contract compliant
+        confidence_raw = row_dict.get("confidence")
+        confidence_band = row_dict.get("confidence_band")
+        if confidence_raw is not None and isinstance(confidence_raw, (int, float)):
+            outcome_confidence_label = confidence_to_label(confidence_raw)
+        elif confidence_band:
+            outcome_confidence_label = confidence_band_to_label(confidence_band)
+        else:
+            outcome_confidence_label = "unknown"
+        
         verified_outcomes.append({
             "outcome_id": row_dict["outcome_id"],
             "asset_name": row_dict["asset_name"],
@@ -1658,8 +1684,7 @@ async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
             "savings_value": round(row_dict.get("savings_value") or 0, 2),
             "savings_unit": row_dict.get("savings_unit", "units"),
             "savings_type": row_dict.get("savings_type"),
-            "confidence": round(row_dict.get("confidence") or 0, 2),
-            "confidence_band": row_dict.get("confidence_band"),
+            "confidence_label": outcome_confidence_label,  # Label not raw value
             "time_to_verify_hours": time_to_verify_hours,
             "verified_at": row_dict.get("verified_at").isoformat() if row_dict.get("verified_at") else None
         })

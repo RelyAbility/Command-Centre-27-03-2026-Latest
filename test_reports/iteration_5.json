@@ -1,0 +1,61 @@
+{
+  "summary": "Completed Lens Contract compliance testing for HOW lens responses. 22/22 backend tests passed. Key finding: GET /api/how/priorities returns confidence_label:'unknown' instead of proper labels - minor issue requiring fix.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "GET /api/how/priorities",
+        "issue": "confidence_label is always 'unknown' instead of proper labels (strong/moderate/low)",
+        "root_cause": "HOWLens.priority_item() looks for economic_impact.confidence but priorities don't have this field set. Should fetch related state to get confidence.",
+        "workaround": "Use GET /api/system/value-summary instead which correctly fetches state confidence"
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_lens_contract_compliance.py",
+    "/app/test_reports/pytest/lens_contract_results.xml"
+  ],
+  "action_items": [
+    "FIX: Update GET /api/how/priorities endpoint in server.py to fetch state confidence and pass to HOWLens",
+    "Alternative: Update first-five-minutes endpoint to store confidence in economic_impact when creating priorities"
+  ],
+  "critical_code_review_comments": [
+    "GET /api/how/priorities does not fetch state confidence - results in 'unknown' confidence_label",
+    "The value-summary endpoint correctly fetches state to get confidence - this pattern should be copied to how/priorities"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_lens_contract_compliance.py"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22 tests passed)",
+    "frontend": "Not tested - backend only testing requested"
+  },
+  "seed_data_creation": "Tests use POST /api/system/demo/first-five-minutes endpoint which creates demo data with states, priorities, and verified outcomes",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Lens Contract compliance tests created in /app/backend/tests/test_lens_contract_compliance.py. All 22 tests pass. The main fix needed is for GET /api/how/priorities to fetch state confidence (currently returns 'unknown'). All other endpoints (value-summary, first-five-minutes) correctly return confidence_label strings.",
+  "lens_contract_compliance_summary": {
+    "verified_compliant": [
+      "GET /api/system/value-summary - top_actions has confidence_label, severity_band, no raw scores",
+      "GET /api/system/value-summary - verified_outcomes has confidence_label, no forbidden fields",
+      "POST /api/system/demo/first-five-minutes - priority_actions has confidence_label and band",
+      "GET /api/how/priorities - returns priority_band not priority_score",
+      "GET /api/how/priorities - does not expose baseline_value or score_components"
+    ],
+    "needs_fix": [
+      "GET /api/how/priorities - confidence_label is 'unknown' instead of correct labels"
+    ],
+    "confidence_label_mapping": {
+      "strong": ">= 80% confidence",
+      "moderate": ">= 60% confidence", 
+      "low": ">= 40% confidence",
+      "insufficient": "< 40% confidence",
+      "unknown": "confidence not available (current bug in how/priorities)"
+    }
+  }
+}

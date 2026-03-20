@@ -13,11 +13,13 @@ const BAND_COLORS = {
   LOW: "bg-blue-500 text-white",
 };
 
-const CONFIDENCE_COLORS = {
-  HIGH: "text-emerald-400",
-  MEDIUM: "text-yellow-400",
-  LOW: "text-orange-400",
-  INSUFFICIENT: "text-red-400",
+// Confidence label colors (labels: strong, moderate, low, insufficient)
+const CONFIDENCE_LABEL_COLORS = {
+  strong: "text-emerald-400",
+  moderate: "text-yellow-400",
+  low: "text-orange-400",
+  insufficient: "text-red-400",
+  unknown: "text-slate-400",
 };
 
 const INTEGRITY_COLORS = {
@@ -486,8 +488,8 @@ function App() {
                       ${action.var_per_day?.toFixed(0)}
                       <span className="text-xs text-slate-400">/day</span>
                     </div>
-                    <div className={`text-xs ${CONFIDENCE_COLORS[action.confidence >= "80%" ? "HIGH" : action.confidence >= "60%" ? "MEDIUM" : "LOW"]}`}>
-                      {action.confidence} confidence
+                    <div className={`text-xs capitalize ${CONFIDENCE_LABEL_COLORS[action.confidence_label] || CONFIDENCE_LABEL_COLORS.unknown}`}>
+                      {action.confidence_label} confidence
                     </div>
                   </div>
                 </div>
