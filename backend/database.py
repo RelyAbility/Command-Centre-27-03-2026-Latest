@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy import text
 
 # Load environment
 load_dotenv(Path(__file__).parent / '.env')
@@ -63,5 +64,5 @@ async def init_db():
     """Initialize database connection (for startup)."""
     # Test connection
     async with engine.begin() as conn:
-        await conn.execute("SELECT 1")
+        await conn.execute(text("SELECT 1"))
     return True

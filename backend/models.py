@@ -117,7 +117,7 @@ def generate_uuid():
 # =============================================================================
 
 class Organisation(Base):
-    __tablename__ = 'organisations'
+    __tablename__ = 'ramp_organisations'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
@@ -128,7 +128,7 @@ class Organisation(Base):
 
 
 class Site(Base):
-    __tablename__ = 'sites'
+    __tablename__ = 'ramp_sites'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     organisation_id = Column(String(36), ForeignKey('organisations.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -153,7 +153,7 @@ class Site(Base):
 
 
 class System(Base):
-    __tablename__ = 'systems'
+    __tablename__ = 'ramp_systems'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     site_id = Column(String(36), ForeignKey('sites.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -166,7 +166,7 @@ class System(Base):
 
 
 class Asset(Base):
-    __tablename__ = 'assets'
+    __tablename__ = 'ramp_assets'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     system_id = Column(String(36), ForeignKey('systems.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -189,7 +189,7 @@ class Asset(Base):
 # =============================================================================
 
 class Rule(Base):
-    __tablename__ = 'rules'
+    __tablename__ = 'ramp_rules'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(255), nullable=False)
@@ -217,7 +217,7 @@ class Rule(Base):
 # =============================================================================
 
 class Signal(Base):
-    __tablename__ = 'signals'
+    __tablename__ = 'ramp_signals'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     asset_id = Column(String(36), ForeignKey('assets.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -237,7 +237,7 @@ class Signal(Base):
 
 
 class Metric(Base):
-    __tablename__ = 'metrics'
+    __tablename__ = 'ramp_metrics'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     asset_id = Column(String(36), ForeignKey('assets.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -261,7 +261,7 @@ class Metric(Base):
 # =============================================================================
 
 class Baseline(Base):
-    __tablename__ = 'baselines'
+    __tablename__ = 'ramp_baselines'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     asset_id = Column(String(36), ForeignKey('assets.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -298,7 +298,7 @@ class Baseline(Base):
 
 
 class State(Base):
-    __tablename__ = 'states'
+    __tablename__ = 'ramp_states'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     asset_id = Column(String(36), ForeignKey('assets.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -341,7 +341,7 @@ class State(Base):
 
 
 class Priority(Base):
-    __tablename__ = 'priorities'
+    __tablename__ = 'ramp_priorities'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     state_id = Column(String(36), ForeignKey('states.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -369,7 +369,7 @@ class Priority(Base):
 
 
 class Intervention(Base):
-    __tablename__ = 'interventions'
+    __tablename__ = 'ramp_interventions'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     state_id = Column(String(36), ForeignKey('states.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -393,7 +393,7 @@ class Intervention(Base):
 
 
 class Outcome(Base):
-    __tablename__ = 'outcomes'
+    __tablename__ = 'ramp_outcomes'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     intervention_id = Column(String(36), ForeignKey('interventions.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -431,7 +431,7 @@ class Event(Base):
     Immutable audit trail.
     No UPDATE or DELETE allowed - enforced via trigger.
     """
-    __tablename__ = 'events'
+    __tablename__ = 'ramp_events'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     event_type = Column(String(50), nullable=False, index=True)
@@ -449,7 +449,7 @@ class Event(Base):
 
 
 class Learning(Base):
-    __tablename__ = 'learning'
+    __tablename__ = 'ramp_learning'
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     asset_id = Column(String(36), ForeignKey('assets.id', ondelete='CASCADE'), nullable=False, index=True)
