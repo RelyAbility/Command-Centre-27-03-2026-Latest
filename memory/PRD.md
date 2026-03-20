@@ -8,7 +8,7 @@ Build RAMP — a state-based, event-driven decision and action system for indust
 
 ## Architecture
 
-### Core Loop
+### Core Loop (MVP COMPLETE)
 ```
 Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → ACTION → Outcome → LEARNING
 ```
@@ -22,7 +22,7 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 ### Technology Stack
 - **Backend:** FastAPI + Supabase/PostgreSQL (via asyncpg)
 - **Frontend:** React + TailwindCSS
-- **Events:** Synchronous dispatch (MVP), database-backed immutable audit trail
+- **Events:** Synchronous dispatch, database-backed immutable audit trail
 - **ORM:** SQLAlchemy with Alembic migrations
 
 ## User Personas
@@ -51,130 +51,140 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | Priority calculation | ✅ Implemented |
 | Economic impact (VaR + VR) | ✅ Implemented |
 | Intervention capture | ✅ Implemented |
-| Verification engine | ✅ Implemented |
-| Learning engine (partial) | ✅ Implemented |
+| **Verification scheduler** | ✅ Implemented (2026-03-20) |
+| **Configurable verification windows** | ✅ Implemented |
+| **Outcome status handling** | ✅ Implemented |
+| **Learning engine connection** | ✅ Implemented |
 | HOW lens API | ✅ Implemented |
 | WHERE lens API | ✅ Implemented |
 | Command Centre UI | ✅ Implemented |
-| PostgreSQL Migration | ✅ Completed (2026-03-20) |
+| PostgreSQL Migration | ✅ Completed |
 
 ## What's Been Implemented
 
-### Date: 2026-03-20 - PostgreSQL Migration Complete
+### Date: 2026-03-20 - Verification & Learning Loop Complete
 
-**MAJOR: MongoDB → Supabase/PostgreSQL Migration**
+**MAJOR: Core MVP Loop is Complete**
 
-Successfully migrated entire persistence layer from MongoDB to Supabase/PostgreSQL:
+The full verification and learning loop is now functional:
 
-1. **Database Schema** (13 tables with `ramp_` prefix):
-   - `ramp_organisations`, `ramp_sites`, `ramp_systems`, `ramp_assets`
-   - `ramp_rules`, `ramp_signals`, `ramp_metrics`
-   - `ramp_baselines`, `ramp_states`, `ramp_priorities`
-   - `ramp_interventions`, `ramp_outcomes`
-   - `ramp_events` (immutable audit trail with trigger protection)
-   - `ramp_learning`
+1. **Verification Configuration** (`/app/backend/ramp/services/verification_config.py`):
+   - Configurable windows by **state family** (ENERGY: 4h, OPERATIONAL: 2h, MAINTENANCE: 8h)
+   - Configurable windows by **intervention type** (ADJUSTMENT: 2h, REPAIR: 8h, REPLACEMENT: 24h, CALIBRATION: 1h)
+   - Intervention type takes precedence over state family
+   - Configurable: `window_hours`, `min_samples`, `min_window_coverage`, `max_retry_attempts`
 
-2. **Foreign Key Relationships Verified** (with SQL JOINs):
-   ```
-   baseline → state → priority → intervention → outcome → event
-   ```
+2. **Verification Scheduler** (`/app/backend/ramp/services/verification_scheduler.py`):
+   - Processes PENDING outcomes when verification window elapses
+   - **Always verifies against frozen baseline**
+   - Calculates savings: `baseline_value - actual_avg`
+   - Calculates explicit confidence (0.0-1.0) with confidence band
+   - Handles retries for insufficient data
 
-3. **JSONB Handling Fixed**:
-   - All JSONB columns use `CAST(:param AS jsonb)` syntax for asyncpg compatibility
-   - JSON serialization via `json.dumps()` before binding
+3. **Outcome Status Handling**:
+   - `PENDING` → Window not elapsed or data accumulating
+   - `VERIFIED` → Sufficient data, savings and confidence calculated
+   - `INSUFFICIENT_DATA` → Max retries reached, data never sufficient
+   - **Never forces verification** — proper guard rails
 
-4. **API Endpoints Working**:
-   - `/api/system/reset` — Clear all demo data
-   - `/api/system/seed` — Idempotent demo data seeding
-   - `/api/system/demo/simulate-drift` — Create full relational chain
-   - `/api/system/checkpoint/relational-chain` — Verify chain with SQL JOINs
-   - `/api/how/priorities` — Operator priority queue
-   - `/api/how/interventions` — Create/complete interventions
-   - `/api/where/priorities/summary` — Portfolio overview
+4. **Learning Connection**:
+   - Verified outcomes update learning records
+   - Tracks: `occurrence_count`, `intervention_count`, `total_savings`, `avg_effectiveness`
+   - Events created: `outcome_verified`, `learning_updated`
 
-5. **Lens Separation Enforced**:
-   - HOW lens via `/app/backend/ramp/lenses/how.py`
-   - WHERE lens via `/app/backend/ramp/lenses/where.py`
+5. **API Endpoints**:
+   - `GET /api/system/verification/config` — View all verification settings
+   - `GET /api/system/verification/pending` — List pending outcomes
+   - `POST /api/system/verification/run` — Execute verification scheduler
+   - `GET /api/system/learning/{asset_id}` — Get learning records
+   - `POST /api/system/demo/complete-verification-flow` — Full demo
+   - `POST /api/system/demo/insufficient-data-scenario` — Guard rail demo
 
-**Key Files Modified:**
-- `/app/backend/ramp/db.py` — Complete rewrite for PostgreSQL
-- `/app/backend/database.py` — Supabase async connection
-- `/app/backend/server.py` — Updated routes and checkpoint test
-- `/app/backend/models.py` — SQLAlchemy ORM models
-- `/app/backend/alembic/versions/ramp_001_initial_schema.py` — Migration
+**Testing Results (25/25 passed):**
+- Verification config with state family and intervention type configs ✅
+- Pending outcomes tracking ✅
+- Scheduler processes outcomes correctly ✅
+- Verified outcomes have explicit confidence ✅
+- INSUFFICIENT_DATA handling (never forced to VERIFIED) ✅
+- Learning records update after verification ✅
+- Relational chain with SQL JOINs ✅
+- HOW/WHERE lens endpoints work ✅
+
+### Earlier: 2026-03-20 - PostgreSQL Migration
+
+Successfully migrated from MongoDB to Supabase/PostgreSQL:
+- 13 tables with `ramp_` prefix and foreign key relationships
+- JSONB handling with `CAST(:param AS jsonb)` for asyncpg
+- Full relational chain verified with SQL JOINs
 
 ---
 
-### Earlier Work
+## MVP Complete Status
 
-**Phase 0: Foundation (Locked)**
-- Data model schema (13 tables)
-- 7 services with clear boundaries
-- Event flow with synchronous dispatch
+The core RAMP MVP loop is now **COMPLETE**:
 
-**Services:**
-1. Ingestion Service — signal intake, metric calculation
-2. Baseline Engine — establish, maintain, freeze baselines
-3. State Engine — rule evaluation, state lifecycle
-4. Priority Engine — scoring, economic impact
-5. Intervention Service — action capture, baseline freeze trigger
-6. Verification Engine — post-action comparison, savings calculation
-7. Learning Engine — recurrence tracking, effectiveness (partial)
+```
+Signal → Metric → Baseline → Rule → STATE → Priority → ACTION → Outcome → LEARNING
+                      ↑                                  ↓
+                      └─────── Baseline Freeze ──────────┘
+                                     ↓
+                            Verification against Frozen Baseline
+                                     ↓
+                            Verified Outcome with Savings/Confidence
+                                     ↓
+                            Learning Record Updated
+```
 
-**APIs:**
-- `/api/system/*` — health, seed, demo, reset, checkpoint
-- `/api/how/*` — operator priority queue, asset state, interventions
-- `/api/where/*` — portfolio summary, site states, outcomes export
-- `/api/ingest/*` — signal batch ingestion
+**Key Guardrails Enforced:**
+1. ✅ Verification window configurable by state family / intervention type
+2. ✅ Verification always against frozen baseline
+3. ✅ Never force verification without sufficient data
+4. ✅ Verified outcomes carry explicit confidence
 
-**Frontend:**
-- Command Centre UI with HOW/WHERE lens toggle
-- Priority queue with drivers and economic impact
-- Asset state panel with active states
-- Intervention modal
-- Portfolio overview with distribution chart
+---
 
 ## Prioritized Backlog
 
-### P0 (MVP Complete) ✅
+### P0 (MVP) ✅ COMPLETE
 - Full event loop working
 - State detection and priority assignment
 - Intervention creation with baseline freeze
 - PostgreSQL migration with full chain verification
+- Verification scheduling with configurable windows
+- Outcome status handling (PENDING, VERIFIED, INSUFFICIENT_DATA)
+- Learning connection from verified outcomes
 
-### P1 (Next)
-- Verification scheduler (wait for post-action data accumulation)
-- Support for "pending" / "insufficient_data" outcome statuses
-- Connect verified outcomes to Learning Engine for baseline refinement
+### P1 (Product Surface)
+- Frontend Verified Outcomes View
 - State timeline visualization
 - Real-time updates (WebSocket)
+- Rule configuration admin UI
 
 ### P2 (Future)
 - Multiple sites support
 - Asset relationships/dependencies
-- Advanced learning (baseline optimization)
-- Benchmark learning / cross-asset comparison
-- Portfolio-level WHERE views
-- Outcome export to CSV/PDF
-- Asset-class-specific threshold modifiers (V1.1)
+- Advanced learning (baseline optimization from verified outcomes)
+- Cross-asset benchmarking
+- Outcome export (CSV/PDF)
+- Asset-class-specific threshold modifiers
 - Complex site configurations (demand-based energy tariffs)
 
 ## Next Tasks
 
-1. **P1: Verification Loop Completion**
-   - Implement scheduler to run verification after configurable time window
-   - Add logic to accumulate post-action metric data
-   - Support pending/insufficient_data statuses
-   - Connect outcomes to Learning Engine
-
-2. **P1: Frontend Verified Outcomes View**
+1. **P1: Frontend Verified Outcomes View**
    - Display verification results in Command Centre
-   - Show savings calculations and confidence
+   - Show savings calculations and confidence bands
+   - Timeline of outcome progression
 
-3. **P2: Real-time Updates**
+2. **P1: Real-time Updates**
    - WebSocket for priority queue updates
    - State change notifications
+   - Verification completion alerts
 
-4. **P2: Admin UI**
-   - Rule configuration interface
-   - Asset class threshold modifiers
+3. **P1: Rule Configuration UI**
+   - Admin interface for rule management
+   - Verification window configuration
+
+4. **P2: Learning-driven Baseline Optimization**
+   - Use verified outcomes to refine baseline thresholds
+   - Track effectiveness patterns
