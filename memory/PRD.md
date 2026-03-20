@@ -44,57 +44,82 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | Outcome status handling | ✅ Implemented |
 | Learning engine connection | ✅ Implemented |
 | PostgreSQL Migration | ✅ Completed |
-| **Proof of Value View** | ✅ Completed (2026-03-20) |
+| Proof of Value View | ✅ Completed |
+| **First 5 Minutes Experience** | ✅ Completed (2026-03-20) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-20 - Proof of Value View Complete
+### Date: 2026-03-20 - First 5 Minutes Experience Complete
 
-**MAJOR: Single Focused Dashboard Demonstrating Full Loop**
+**MAJOR: Guided Onboarding / Demo Experience**
 
-Built a "Proof of Value" view that answers in under a minute:
+Built a "First 5 Minutes" experience that immediately establishes credibility and demonstrates value:
 
-1. **Where is value being lost?**
-   - Current Value at Risk: `$XX.XX/day`
-   - Breakdown by priority band (CRITICAL, HIGH, MEDIUM, LOW)
-   - Active priority count
+**1. Guided Entry with Credibility**
+- "Riverside Plant - Building A" with real asset names
+- 4 assets across 3 systems (HVAC, Compressed Air, Process Cooling)
+- 14 days of established baseline data
+- Professional, realistic industrial context
 
-2. **What to do about it?**
-   - Top Priority Actions (max 5)
-   - Each shows: asset name, state type, value at risk, confidence band
-   - "Take Action" button opens intervention modal
+**2. Current Value at Risk ($212.60/day)**
+- Total VaR prominently displayed
+- Breakdown by priority band:
+  - HIGH: $151 (Main Air Compressor)
+  - MEDIUM: $43 (Air Handling Unit 1)
+  - LOW: $19 (Process Chiller 1)
+- 100% verification rate indicator
 
-3. **What has been recovered?**
-   - Total savings recovered
-   - Recent verified outcomes with:
-     - Savings value and unit (e.g., +6.9 kWh)
-     - Confidence band and percentage
-     - Time to verify (hours)
+**3. Prioritised Actions with Explanations**
+- **#1 HIGH**: Main Air Compressor - 22% energy drift for 3 hours, 89% confidence
+  - → "Inspect inlet filter and check for leaks in downstream piping"
+- **#2 MEDIUM**: Air Handling Unit 1 - 12% efficiency drop for 6 hours, 76% confidence
+  - → "Check filter differential pressure and consider filter replacement"
+- **#3 LOW**: Process Chiller 1 - 8% energy drift for 45 minutes, 65% confidence
+  - → "Monitor - may self-correct with load changes"
 
-4. **Is the system working?**
-   - Loop Integrity signal
-   - Verified / Pending / Insufficient counts
-   - Verification rate percentage
-   - Status badge: HEALTHY (≥70%) / DEGRADED (≥40%) / POOR (<40%)
+**4. Completed Loop (Proof)**
+- VFD Coolant Pump: 18.5% energy drift detected 3 days ago
+- Action: Calibration - recalibrated VFD frequency setpoints
+- Outcome: ✓ Verified +1.3 kWh/hr savings with 91% confidence
+- Time to verify: 1 hour
+
+**5. Continuous Monitoring Narrative**
+- "Continuous Monitoring Active" indicator
+- 1 healthy asset, 3 in active state
+- Learning enabled
+- "Signal → State → Decision → Action → Learning" tagline
+
+**6. Interactive Guided Tour**
+- 6-step walkthrough: Welcome, Site, Completed Loop, Value at Risk, Actions, Continuous
+- Continue/Back/Skip navigation
+- Highlights relevant sections as user progresses
 
 **API Endpoint:**
 ```
-GET /api/system/value-summary
+POST /api/system/demo/first-five-minutes
 ```
-Returns all four sections in a single call.
+Creates complete realistic demo scenario (~22 seconds)
 
-**Testing: 13/13 backend tests + all UI elements verified**
+**Testing: 11/11 backend tests + all UI elements verified**
 
 ---
 
+### Earlier: 2026-03-20 - Proof of Value View
+
+Single-page dashboard answering:
+- Where is value being lost? → VaR/day
+- What to do about it? → Priority actions
+- What has been recovered? → Verified outcomes
+- Is the system working? → Loop integrity
+
 ### Earlier: 2026-03-20 - Verification & Learning Loop
 
-Implemented complete verification and learning loop with guardrails:
-- Configurable verification windows by state family and intervention type
+Complete verification loop with guardrails:
+- Configurable windows by state family/intervention type
 - Always verifies against frozen baseline
 - Never forces verification without sufficient data
-- Verified outcomes carry explicit confidence
-- Learning records updated after successful verification
+- Explicit confidence on verified outcomes
+- Learning records updated from verified outcomes
 
 ### Earlier: 2026-03-20 - PostgreSQL Migration
 
@@ -110,6 +135,7 @@ The core RAMP MVP is now **COMPLETE** with:
 2. ✅ **PostgreSQL Persistence** — Relational chain with SQL JOINs
 3. ✅ **Verification Loop** — Configurable, guarded, with explicit confidence
 4. ✅ **Proof of Value Surface** — Single view showing business impact
+5. ✅ **First 5 Minutes Experience** — Onboarding/demo that pulls users in
 
 ---
 
@@ -149,15 +175,13 @@ The core RAMP MVP is now **COMPLETE** with:
 ## Key Files
 
 ### Backend
-- `/app/backend/server.py` — Main API with all endpoints
+- `/app/backend/server.py` — Main API with all endpoints including first-five-minutes
 - `/app/backend/ramp/db.py` — Database operations
 - `/app/backend/ramp/services/verification_scheduler.py` — Verification logic
 - `/app/backend/ramp/services/verification_config.py` — Configurable windows
-- `/app/backend/ramp/lenses/how.py` — HOW lens payload builder
-- `/app/backend/ramp/lenses/where.py` — WHERE lens payload builder
 
 ### Frontend
-- `/app/frontend/src/App.js` — Proof of Value dashboard
+- `/app/frontend/src/App.js` — First Five Minutes experience with guided tour
 
 ### Database
 - `/app/backend/alembic/versions/ramp_001_initial_schema.py` — Schema
@@ -166,3 +190,4 @@ The core RAMP MVP is now **COMPLETE** with:
 ## Test Reports
 - `/app/test_reports/iteration_2.json` — Verification system tests (25/25 passed)
 - `/app/test_reports/iteration_3.json` — Proof of Value tests (13/13 passed)
+- `/app/test_reports/iteration_4.json` — First Five Minutes tests (11/11 backend + all UI passed)
