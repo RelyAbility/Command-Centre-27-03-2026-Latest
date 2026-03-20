@@ -49,7 +49,11 @@ class HOWLens:
         return value
     
     @staticmethod
-    def priority_item(priority: Dict[str, Any], asset: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def priority_item(
+        priority: Dict[str, Any], 
+        asset: Optional[Dict[str, Any]] = None,
+        state: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Build a single priority item for HOW lens.
         
@@ -71,19 +75,16 @@ class HOWLens:
         if not isinstance(drivers, list):
             drivers = []
         
-        # Get confidence from economic_impact (which stores it as a band/label)
-        # If raw confidence exists, convert to label
-        confidence_raw = economic.get("confidence")
-        if isinstance(confidence_raw, (int, float)):
-            confidence_label = confidence_to_label(confidence_raw)
-        elif isinstance(confidence_raw, str):
-            # Already a label or band
-            if confidence_raw.upper() in ["HIGH", "MEDIUM", "LOW", "INSUFFICIENT"]:
-                confidence_label = confidence_band_to_label(confidence_raw)
-            else:
-                confidence_label = confidence_raw.lower()
-        else:
-            confidence_label = "unknown"
+        # Get confidence label from STATE (not economic_impact)
+        # This is the correct source - states have confidence
+        confidence_label = "unknown"
+        if state:
+            confidence_raw = state.get("confidence")
+            confidence_band = state.get("confidence_band")
+            if confidence_raw is not None and isinstance(confidence_raw, (int, float)):
+                confidence_label = confidence_to_label(confidence_raw)
+            elif confidence_band:
+                confidence_label = confidence_band_to_label(confidence_band)
         
         return {
             "priority_id": priority.get("id"),
@@ -101,16 +102,24 @@ class HOWLens:
         }
     
     @staticmethod
-    def priority_list_response(priorities: List[Dict[str, Any]], assets: Dict[str, Dict[str, Any]]) -> Dict[str, Any]:
+    def priority_list_response(
+        priorities: List[Dict[str, Any]], 
+        assets: Dict[str, Dict[str, Any]],
+        states: Optional[Dict[str, Dict[str, Any]]] = None
+    ) -> Dict[str, Any]:
         """
         Build priority list response for HOW lens.
         
         Used by GET /api/how/priorities
         """
+        if states is None:
+            states = {}
+            
         items = []
         for p in priorities:
             asset = assets.get(p.get("asset_id"))
-            items.append(HOWLens.priority_item(p, asset))
+            state = states.get(p.get("state_id"))
+            items.append(HOWLens.priority_item(p, asset, state))
         
         return {
             "priorities": items,

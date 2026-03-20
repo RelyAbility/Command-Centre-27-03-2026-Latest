@@ -1179,17 +1179,27 @@ async def get_priorities_how(db: RAMPDatabase = Depends(get_db)):
     """
     priorities = await db.get_active_priorities()
     
-    # Build asset lookup
+    # Build asset and state lookups
     assets = {}
+    states = {}
     for p in priorities:
         asset_id = p.get("asset_id")
+        state_id = p.get("state_id")
+        
         if asset_id and asset_id not in assets:
             asset = await db.get_asset(asset_id)
             if asset:
                 assets[asset_id] = asset
+        
+        if state_id and state_id not in states:
+            # Get active states for this asset and find the matching one
+            active_states = await db.get_active_states(asset_id)
+            state = next((s for s in active_states if s["id"] == state_id), None)
+            if state:
+                states[state_id] = state
     
-    # Use HOWLens to build response
-    return HOWLens.priority_list_response(priorities, assets)
+    # Use HOWLens to build response with state confidence
+    return HOWLens.priority_list_response(priorities, assets, states)
 
 
 @how_router.get("/assets/{asset_id}/state")

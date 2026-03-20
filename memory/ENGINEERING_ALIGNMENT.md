@@ -59,29 +59,20 @@ The current MVP implementation is **well-aligned** with the core system design p
 
 ### ⚠️ GAPS — Require Correction
 
-#### 1. Lens Contract: Raw Field Exposure (Priority: HIGH)
+#### 1. ~~Lens Contract: Raw Field Exposure~~ ✅ FIXED (2026-03-20)
 
-**Reference (Lens Contract §4.6, §4.7):**
-> - `severity_score_raw` — never exposed outside SYSTEM
-> - `priority_score_raw` — internal only
-> - `confidence_raw` — WHERE only, not HOW
-> - HOW gets bands and labels, not numeric scores
+**Fixed:** HOW lens now properly suppresses raw scores and exposes only bands/labels:
+- `confidence` raw → `confidence_label` (strong/moderate/low/insufficient)
+- `priority_score` → `priority_band` only
+- `severity_score` → `severity_band` only
+- `baseline_value`, `score_components`, `actual_value` → suppressed
 
-**Current State:**
-- `/api/how/priorities` returns `priority_score` (raw numeric)
-- HOW responses include `severity_score` and `confidence` raw values
-
-**Required Fix:**
-```python
-# HOW lens should return:
-{
-    "priority_band": "HIGH",      # Not priority_score: 78
-    "severity_band": "MEDIUM",    # Not severity_score: 5
-    "confidence_label": "strong", # Not confidence: 0.89
-}
-```
-
-**Action:** Update HOW lens builder to filter raw numeric fields.
+**Implementation:**
+- Created `/app/backend/ramp/lenses/helpers.py` with `confidence_to_label()` mapping
+- Updated `HOWLens` to use states for confidence
+- Updated `/api/how/priorities` to fetch states
+- Updated `/api/system/value-summary` to use confidence_label
+- Updated `/api/system/demo/first-five-minutes` to use confidence_label
 
 ---
 
@@ -218,14 +209,9 @@ ramp_baselines ← ramp_states ← ramp_priorities ← ramp_interventions ← ra
 
 ## Recommended Action Plan
 
-### Immediate (Before Next Feature Work)
-1. **Fix lens field suppression** — 1-2 hours
-   - Update `/app/backend/ramp/lenses/how.py`
-   - Replace raw scores with bands/labels
-
-2. **Add confidence labels** — 30 minutes
-   - Add `confidence_to_label()` helper
-   - Apply in HOW responses
+### ✅ Completed (2026-03-20)
+1. **Fixed lens field suppression** — HOW lens now exposes bands/labels only
+2. **Added confidence labels** — Single consistent mapping across all responses
 
 ### Near-Term (P1)
 3. **Implement state transitions** — 4-6 hours
