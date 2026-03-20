@@ -453,20 +453,107 @@ class RAMPDatabase:
         )
         return [dict(row) for row in result.mappings()]
     
-    async def end_state(self, state_id: str, resolution_type: str) -> Optional[Dict[str, Any]]:
+    async def end_state(
+        self, 
+        state_id: str, 
+        resolution_type: str,
+        transitioned_to_state_id: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        """
+        End a state with a resolution type.
+        
+        Resolution types:
+        - RESOLVED: State naturally resolved (metric returned to baseline)
+        - INTERVENTION: State ended due to operator intervention
+        - SUPERSEDED: State replaced by a new state (transition)
+        - ESCALATED: State escalated to a higher severity (transition)
+        
+        If transitioned_to_state_id is provided, the state is being replaced
+        by another state (SUPERSEDED or ESCALATED resolution).
+        """
         now = now_utc()
         result = await self.session.execute(
             text("""
                 UPDATE ramp_states 
-                SET ended_at = :ended_at, resolution_type = :resolution_type, updated_at = :updated_at
+                SET ended_at = :ended_at, 
+                    resolution_type = :resolution_type, 
+                    transitioned_to_state_id = :transitioned_to_state_id,
+                    updated_at = :updated_at
                 WHERE id = :id
                 RETURNING *
             """),
-            {"ended_at": now, "resolution_type": resolution_type, "updated_at": now, "id": state_id}
+            {
+                "ended_at": now, 
+                "resolution_type": resolution_type, 
+                "transitioned_to_state_id": transitioned_to_state_id,
+                "updated_at": now, 
+                "id": state_id
+            }
         )
         await self.session.commit()
         row = result.mappings().first()
         return dict(row) if row else None
+    
+    async def transition_state(
+        self,
+        from_state_id: str,
+        to_state_data: Dict[str, Any],
+        transition_type: str = "SUPERSEDED"
+    ) -> Dict[str, Any]:
+        """
+        Transition from one state to another.
+        
+        This is the canonical way to handle state changes where a new state
+        replaces an existing one. The old state is ended with the appropriate
+        resolution type, and the new state is created with a link back.
+        
+        Transition types:
+        - SUPERSEDED: New state replaces old (e.g., DRIFT becomes SPIKE)
+        - ESCALATED: Same state type but higher severity due to duration/inaction
+        
+        Returns the new state record.
+        """
+        # Create the new state first
+        new_state = await self.create_state(to_state_data)
+        
+        # End the old state with transition reference
+        await self.end_state(
+            state_id=from_state_id,
+            resolution_type=transition_type,
+            transitioned_to_state_id=new_state["id"]
+        )
+        
+        return new_state
+    
+    async def get_state_by_id(self, state_id: str) -> Optional[Dict[str, Any]]:
+        """Get a state by its ID, regardless of active status."""
+        result = await self.session.execute(
+            text("SELECT * FROM ramp_states WHERE id = :id"),
+            {"id": state_id}
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+    
+    async def get_state_transition_chain(self, state_id: str) -> List[Dict[str, Any]]:
+        """
+        Get the full transition chain for a state.
+        
+        Follows transitioned_to_state_id links to build the complete
+        history of state transitions.
+        """
+        chain = []
+        current_id = state_id
+        visited = set()  # Prevent infinite loops
+        
+        while current_id and current_id not in visited:
+            visited.add(current_id)
+            state = await self.get_state_by_id(current_id)
+            if not state:
+                break
+            chain.append(state)
+            current_id = state.get("transitioned_to_state_id")
+        
+        return chain
     
     # =========================================================================
     # PRIORITIES (JSONB fields)

@@ -1903,6 +1903,285 @@ async def get_learning_for_asset(asset_id: str, db: RAMPDatabase = Depends(get_d
     }
 
 
+# =============================================================================
+# ESCALATION ROUTES
+# =============================================================================
+
+@system_router.post("/escalation/run")
+async def run_escalation_check(db: RAMPDatabase = Depends(get_db)):
+    """
+    Run the escalation service to check all active priorities.
+    
+    This endpoint:
+    1. Checks all active priorities for duration-based escalation
+    2. Escalates priorities that exceed configured thresholds
+    3. Creates audit events for all escalations
+    
+    Escalation thresholds (example for DRIFT):
+    - 10 minutes → MEDIUM
+    - 8 hours → HIGH
+    - 2 days → CRITICAL
+    
+    In production, this would be called by a cron job or scheduled task.
+    """
+    from ramp.services.escalation import EscalationService
+    
+    service = EscalationService(db)
+    results = await service.check_and_escalate_all()
+    
+    return {
+        "status": "completed",
+        "summary": {
+            "checked": results["checked"],
+            "escalated": results["escalated"],
+            "errors": len(results["errors"])
+        },
+        "escalations": results["escalations"],
+        "errors": results["errors"] if results["errors"] else None
+    }
+
+
+@system_router.get("/escalation/candidates")
+async def get_escalation_candidates(db: RAMPDatabase = Depends(get_db)):
+    """
+    Get all priorities that would be escalated if run now.
+    
+    Returns a preview of what check_and_escalate_all() would do,
+    without actually applying any changes.
+    """
+    from ramp.services.escalation import EscalationService
+    
+    service = EscalationService(db)
+    candidates = await service.get_escalation_candidates()
+    
+    return {
+        "candidates_count": len(candidates),
+        "candidates": candidates
+    }
+
+
+class ManualEscalationRequest(BaseModel):
+    priority_id: str
+    target_band: str  # MEDIUM, HIGH, CRITICAL
+    reason: str
+    escalated_by: str
+
+
+@system_router.post("/escalation/manual")
+async def manual_escalate_priority(
+    request: ManualEscalationRequest,
+    db: RAMPDatabase = Depends(get_db)
+):
+    """
+    Manually escalate a priority.
+    
+    Used when an operator determines immediate escalation is needed,
+    bypassing the duration-based automatic escalation.
+    """
+    from ramp.services.escalation import EscalationService
+    
+    service = EscalationService(db)
+    result = await service.manual_escalate(
+        priority_id=request.priority_id,
+        target_band=request.target_band.upper(),
+        reason=request.reason,
+        escalated_by=request.escalated_by
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+# =============================================================================
+# STATE TRANSITION ROUTES
+# =============================================================================
+
+class StateTransitionRequest(BaseModel):
+    from_state_id: str
+    transition_type: str = "SUPERSEDED"  # SUPERSEDED, ESCALATED
+    new_state_family: Optional[str] = None
+    new_state_type: Optional[str] = None
+    new_severity_score: Optional[int] = None
+    new_severity_band: Optional[str] = None
+    reason: str
+
+
+@system_router.post("/states/transition")
+async def transition_state(
+    request: StateTransitionRequest,
+    db: RAMPDatabase = Depends(get_db)
+):
+    """
+    Transition a state to a new state.
+    
+    This implements the State Engine requirement that states must transition,
+    not just stop/start. Valid transitions:
+    
+    - SUPERSEDED: State replaced by a different state type (e.g., DRIFT → SPIKE)
+    - ESCALATED: Same state type but higher severity
+    
+    The old state is ended with the transition type and linked to the new state
+    via transitioned_to_state_id.
+    """
+    from sqlalchemy import text as sql_text
+    
+    # Get the current state
+    current_state = await db.get_state_by_id(request.from_state_id)
+    if not current_state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    if current_state.get("ended_at"):
+        raise HTTPException(status_code=400, detail="State has already ended")
+    
+    # Build new state data (inherit from current state if not specified)
+    now = now_utc()
+    new_state_data = {
+        "asset_id": current_state["asset_id"],
+        "rule_id": current_state.get("rule_id"),
+        "baseline_id": current_state.get("baseline_id"),
+        "state_family": request.new_state_family or current_state["state_family"],
+        "state_type": request.new_state_type or current_state["state_type"],
+        "severity_score": request.new_severity_score or current_state["severity_score"],
+        "severity_band": request.new_severity_band or current_state["severity_band"],
+        "severity_components": current_state.get("severity_components", {}),
+        "confidence": current_state["confidence"],
+        "confidence_band": current_state["confidence_band"],
+        "confidence_components": current_state.get("confidence_components", {}),
+        "deviation_percent": current_state.get("deviation_percent"),
+        "started_at": now,
+        "duration_minutes": 0
+    }
+    
+    # Perform the transition
+    new_state = await db.transition_state(
+        from_state_id=request.from_state_id,
+        to_state_data=new_state_data,
+        transition_type=request.transition_type.upper()
+    )
+    
+    # Create transition event
+    await db.create_event({
+        "event_type": "state_transitioned",
+        "entity_type": "state",
+        "entity_id": request.from_state_id,
+        "payload": {
+            "from_state_id": request.from_state_id,
+            "to_state_id": new_state["id"],
+            "transition_type": request.transition_type.upper(),
+            "reason": request.reason,
+            "from_state_type": current_state["state_type"],
+            "to_state_type": new_state_data["state_type"]
+        }
+    })
+    
+    return {
+        "status": "transitioned",
+        "from_state": {
+            "id": request.from_state_id,
+            "state_type": current_state["state_type"],
+            "resolution_type": request.transition_type.upper()
+        },
+        "to_state": {
+            "id": new_state["id"],
+            "state_type": new_state_data["state_type"],
+            "severity_band": new_state_data["severity_band"]
+        },
+        "transition_type": request.transition_type.upper(),
+        "reason": request.reason
+    }
+
+
+@system_router.get("/states/{state_id}/chain")
+async def get_state_transition_chain(
+    state_id: str,
+    db: RAMPDatabase = Depends(get_db)
+):
+    """
+    Get the full transition chain for a state.
+    
+    Follows the transitioned_to_state_id links to show how a state
+    evolved over time.
+    """
+    chain = await db.get_state_transition_chain(state_id)
+    
+    if not chain:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    return {
+        "chain_length": len(chain),
+        "chain": [
+            {
+                "id": s["id"],
+                "state_type": s["state_type"],
+                "severity_band": s["severity_band"],
+                "started_at": s["started_at"].isoformat() if s.get("started_at") else None,
+                "ended_at": s["ended_at"].isoformat() if s.get("ended_at") else None,
+                "resolution_type": s.get("resolution_type"),
+                "transitioned_to_state_id": s.get("transitioned_to_state_id"),
+                "is_active": s.get("ended_at") is None
+            }
+            for s in chain
+        ]
+    }
+
+
+@system_router.post("/states/{state_id}/end")
+async def end_state_endpoint(
+    state_id: str,
+    resolution_type: str = Query(..., description="RESOLVED, INTERVENTION, SUPERSEDED, ESCALATED"),
+    db: RAMPDatabase = Depends(get_db)
+):
+    """
+    End a state with a resolution type.
+    
+    Resolution types:
+    - RESOLVED: State naturally resolved (metric returned to baseline)
+    - INTERVENTION: State ended due to operator intervention
+    - SUPERSEDED: State replaced by a new state (use /states/transition instead)
+    - ESCALATED: State escalated (use /states/transition instead)
+    """
+    valid_types = ["RESOLVED", "INTERVENTION", "SUPERSEDED", "ESCALATED"]
+    if resolution_type.upper() not in valid_types:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Invalid resolution_type. Must be one of: {valid_types}"
+        )
+    
+    current_state = await db.get_state_by_id(state_id)
+    if not current_state:
+        raise HTTPException(status_code=404, detail="State not found")
+    
+    if current_state.get("ended_at"):
+        raise HTTPException(status_code=400, detail="State has already ended")
+    
+    ended_state = await db.end_state(state_id, resolution_type.upper())
+    
+    # Expire associated priority
+    await db.expire_priority(state_id)
+    
+    # Create event
+    await db.create_event({
+        "event_type": "state_ended",
+        "entity_type": "state",
+        "entity_id": state_id,
+        "payload": {
+            "state_id": state_id,
+            "resolution_type": resolution_type.upper(),
+            "state_type": current_state["state_type"],
+            "duration_minutes": ended_state.get("duration_minutes") if ended_state else 0
+        }
+    })
+    
+    return {
+        "status": "ended",
+        "state_id": state_id,
+        "resolution_type": resolution_type.upper(),
+        "ended_at": ended_state["ended_at"].isoformat() if ended_state and ended_state.get("ended_at") else None
+    }
+
+
 # Root endpoint for API
 @api_router.get("/")
 async def root():
