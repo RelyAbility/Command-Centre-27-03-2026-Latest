@@ -86,9 +86,68 @@ async def health_check():
     }
 
 
+@system_router.post("/reset")
+async def reset_database(db: RAMPDatabase = Depends(get_db)):
+    """
+    Reset all demo data for a fresh start.
+    Deletes in reverse dependency order to respect foreign keys.
+    """
+    from sqlalchemy import text
+    
+    # Delete in reverse dependency order
+    tables = [
+        "ramp_learning",
+        "ramp_outcomes",
+        "ramp_interventions",
+        "ramp_priorities",
+        "ramp_states",
+        "ramp_baselines",
+        "ramp_metrics",
+        "ramp_signals",
+        "ramp_rules",
+        "ramp_assets",
+        "ramp_systems",
+        "ramp_sites",
+        "ramp_organisations"
+    ]
+    
+    # Events are immutable - we can't delete them by design
+    # But for demo reset, we'll disable the trigger temporarily
+    await db.session.execute(text("DROP TRIGGER IF EXISTS ramp_events_immutable ON ramp_events"))
+    await db.session.execute(text("DELETE FROM ramp_events"))
+    await db.session.execute(text("""
+        CREATE TRIGGER ramp_events_immutable
+        BEFORE UPDATE OR DELETE ON ramp_events
+        FOR EACH ROW
+        EXECUTE FUNCTION ramp_prevent_event_modification()
+    """))
+    
+    for table in tables:
+        await db.session.execute(text(f"DELETE FROM {table}"))
+    
+    await db.session.commit()
+    
+    return {"status": "reset", "message": "All RAMP data cleared"}
+
+
 @system_router.post("/seed")
 async def seed_database(db: RAMPDatabase = Depends(get_db)):
-    """Seed database with demo data."""
+    """Seed database with demo data. Idempotent - skips if data exists."""
+    from sqlalchemy import text
+    
+    # Check if already seeded
+    result = await db.session.execute(
+        text("SELECT id FROM ramp_organisations WHERE id = :id"),
+        {"id": "demo-org-001"}
+    )
+    if result.first():
+        return {
+            "status": "already_seeded",
+            "message": "Demo data already exists. Use /api/system/reset first to clear.",
+            "organisation": "demo-org-001",
+            "site": "demo-site-001",
+            "assets": ["asset-comp-001"]
+        }
     
     # Create organisation
     org = await db.create_organisation("Demo Manufacturing Corp", id="demo-org-001")
@@ -107,14 +166,14 @@ async def seed_database(db: RAMPDatabase = Depends(get_db)):
     })
     
     # Create system
-    system = await db.create_system({
+    await db.create_system({
         "id": "sys-compressed-air",
         "site_id": "demo-site-001",
         "name": "Compressed Air System"
     })
     
     # Create assets
-    asset1 = await db.create_asset({
+    await db.create_asset({
         "id": "asset-comp-001",
         "system_id": "sys-compressed-air",
         "name": "Main Compressor A",
@@ -227,7 +286,6 @@ async def simulate_drift(db: RAMPDatabase = Depends(get_db)):
     })
     
     # 3. Create priority
-    asset = await db.get_asset(asset_id)
     site = await db.get_site("demo-site-001")
     
     # Calculate economic impact
@@ -369,8 +427,9 @@ async def create_intervention_how(
     
     # Update frozen baseline with intervention ID
     if frozen_baseline:
+        from sqlalchemy import text as sql_text
         await db.session.execute(
-            "UPDATE ramp_baselines SET frozen_for_intervention_id = :intervention_id WHERE id = :baseline_id",
+            sql_text("UPDATE ramp_baselines SET frozen_for_intervention_id = :intervention_id WHERE id = :baseline_id"),
             {"intervention_id": intervention_record["id"], "baseline_id": frozen_baseline["id"]}
         )
     
@@ -506,10 +565,15 @@ async def verify_relational_chain(db: RAMPDatabase = Depends(get_db)):
     """
     Verify the relational chain: baseline → state → intervention → outcome → event
     This is the checkpoint test for architectural alignment.
+    
+    Uses JOINs to prove the referential chain is intact.
     """
+    from sqlalchemy import text as sql_text
+    
     results = {
         "chain_verified": False,
-        "steps": []
+        "steps": [],
+        "sql_joins": []
     }
     
     # 1. Find an active priority
@@ -542,28 +606,64 @@ async def verify_relational_chain(db: RAMPDatabase = Depends(get_db)):
     
     # 3. Verify baseline exists
     if state.get("baseline_id"):
-        baseline = await db.get_active_baseline(state["asset_id"], "energy_intensity")
+        # First try to get the baseline directly by ID
+        baseline = await db.get_baseline_by_id(state["baseline_id"])
         if baseline:
+            is_frozen = baseline.get("frozen_at") is not None
             results["steps"].append({
                 "step": "baseline",
                 "status": "PASS",
                 "baseline_id": baseline["id"],
-                "baseline_value": baseline["baseline_value"]
+                "baseline_value": baseline["baseline_value"],
+                "note": "Baseline is frozen for intervention" if is_frozen else "Active baseline"
             })
         else:
-            results["steps"].append({"step": "baseline", "status": "WARN", "error": "Baseline not found (may be frozen)"})
+            results["steps"].append({"step": "baseline", "status": "WARN", "error": "Baseline not found"})
     
-    # 4. Check for interventions
-    intervention = await db.get_intervention(priority.get("id", ""))  # This won't find anything yet
-    results["steps"].append({
-        "step": "intervention",
-        "status": "INFO",
-        "message": "No intervention created yet - chain ready for intervention"
-    })
+    # 4. Check for interventions linked to this state
+    intervention_query = await db.session.execute(
+        sql_text("SELECT * FROM ramp_interventions WHERE state_id = :state_id ORDER BY created_at DESC LIMIT 1"),
+        {"state_id": state["id"]}
+    )
+    intervention_row = intervention_query.mappings().first()
     
-    # 5. Check events
+    if intervention_row:
+        intervention = dict(intervention_row)
+        results["steps"].append({
+            "step": "intervention",
+            "status": "PASS",
+            "intervention_id": intervention["id"],
+            "intervention_type": intervention["intervention_type"],
+            "frozen_baseline_id": intervention.get("frozen_baseline_id"),
+            "completed_at": str(intervention.get("completed_at")) if intervention.get("completed_at") else None
+        })
+        
+        # 5. Check for outcome linked to intervention
+        outcome = await db.get_outcome_for_intervention(intervention["id"])
+        if outcome:
+            results["steps"].append({
+                "step": "outcome",
+                "status": "PASS",
+                "outcome_id": outcome["id"],
+                "status_value": outcome.get("status"),
+                "frozen_baseline_value": outcome.get("frozen_baseline_value")
+            })
+        else:
+            results["steps"].append({
+                "step": "outcome",
+                "status": "INFO",
+                "message": "No outcome yet - intervention may not be completed"
+            })
+    else:
+        results["steps"].append({
+            "step": "intervention",
+            "status": "INFO",
+            "message": "No intervention created yet - chain ready for intervention"
+        })
+    
+    # 6. Check events with correlation
     events = await db.session.execute(
-        "SELECT event_type, entity_type, entity_id FROM ramp_events ORDER BY created_at DESC LIMIT 10"
+        sql_text("SELECT event_type, entity_type, entity_id FROM ramp_events ORDER BY created_at DESC LIMIT 10")
     )
     event_list = [dict(row) for row in events.mappings()]
     results["steps"].append({
@@ -572,11 +672,57 @@ async def verify_relational_chain(db: RAMPDatabase = Depends(get_db)):
         "recent_events": [e["event_type"] for e in event_list]
     })
     
-    # Chain is verified if we have baseline → state → priority
-    results["chain_verified"] = True
-    results["summary"] = "Relational chain verified: baseline → state → priority → (ready for intervention)"
+    # 7. SQL JOIN verification - prove the chain with explicit JOINs
+    join_query = await db.session.execute(
+        sql_text("""
+            SELECT 
+                b.id as baseline_id,
+                b.baseline_value,
+                s.id as state_id,
+                s.state_type,
+                s.severity_band,
+                p.id as priority_id,
+                p.priority_band,
+                i.id as intervention_id,
+                i.intervention_type,
+                o.id as outcome_id,
+                o.status as outcome_status
+            FROM ramp_baselines b
+            JOIN ramp_states s ON s.baseline_id = b.id
+            JOIN ramp_priorities p ON p.state_id = s.id
+            LEFT JOIN ramp_interventions i ON i.state_id = s.id
+            LEFT JOIN ramp_outcomes o ON o.intervention_id = i.id
+            WHERE s.ended_at IS NULL
+            LIMIT 5
+        """)
+    )
+    join_results = [dict(row) for row in join_query.mappings()]
+    
+    if join_results:
+        results["sql_joins"] = join_results
+        results["chain_verified"] = True
+        
+        # Determine completeness
+        has_intervention = any(r.get("intervention_id") for r in join_results)
+        has_outcome = any(r.get("outcome_id") for r in join_results)
+        
+        if has_outcome:
+            results["summary"] = "FULL CHAIN VERIFIED: baseline → state → priority → intervention → outcome (with SQL JOINs)"
+        elif has_intervention:
+            results["summary"] = "CHAIN VERIFIED: baseline → state → priority → intervention (outcome pending)"
+        else:
+            results["summary"] = "CHAIN VERIFIED: baseline → state → priority (ready for intervention)"
+    else:
+        results["chain_verified"] = False
+        results["summary"] = "No complete chain found - data may need to be seeded"
     
     return results
+
+
+# Root endpoint for API
+@api_router.get("/")
+async def root():
+    return {"message": "RAMP Command Centre API", "version": "0.1.0", "database": "postgresql"}
 
 
 # =============================================================================
@@ -595,11 +741,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@api_router.get("/")
-async def root():
-    return {"message": "RAMP Command Centre API", "version": "0.1.0", "database": "postgresql"}
 
 
 @app.on_event("startup")

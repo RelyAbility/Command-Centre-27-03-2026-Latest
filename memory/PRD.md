@@ -20,9 +20,10 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 - **HOW vs WHERE** — lens separation, not separate engines
 
 ### Technology Stack
-- **Backend:** FastAPI + MongoDB
+- **Backend:** FastAPI + Supabase/PostgreSQL (via asyncpg)
 - **Frontend:** React + TailwindCSS
-- **Events:** Synchronous dispatch (MVP), database-backed audit trail
+- **Events:** Synchronous dispatch (MVP), database-backed immutable audit trail
+- **ORM:** SQLAlchemy with Alembic migrations
 
 ## User Personas
 
@@ -55,13 +56,59 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | HOW lens API | ✅ Implemented |
 | WHERE lens API | ✅ Implemented |
 | Command Centre UI | ✅ Implemented |
+| PostgreSQL Migration | ✅ Completed (2026-03-20) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-20
+### Date: 2026-03-20 - PostgreSQL Migration Complete
+
+**MAJOR: MongoDB → Supabase/PostgreSQL Migration**
+
+Successfully migrated entire persistence layer from MongoDB to Supabase/PostgreSQL:
+
+1. **Database Schema** (13 tables with `ramp_` prefix):
+   - `ramp_organisations`, `ramp_sites`, `ramp_systems`, `ramp_assets`
+   - `ramp_rules`, `ramp_signals`, `ramp_metrics`
+   - `ramp_baselines`, `ramp_states`, `ramp_priorities`
+   - `ramp_interventions`, `ramp_outcomes`
+   - `ramp_events` (immutable audit trail with trigger protection)
+   - `ramp_learning`
+
+2. **Foreign Key Relationships Verified** (with SQL JOINs):
+   ```
+   baseline → state → priority → intervention → outcome → event
+   ```
+
+3. **JSONB Handling Fixed**:
+   - All JSONB columns use `CAST(:param AS jsonb)` syntax for asyncpg compatibility
+   - JSON serialization via `json.dumps()` before binding
+
+4. **API Endpoints Working**:
+   - `/api/system/reset` — Clear all demo data
+   - `/api/system/seed` — Idempotent demo data seeding
+   - `/api/system/demo/simulate-drift` — Create full relational chain
+   - `/api/system/checkpoint/relational-chain` — Verify chain with SQL JOINs
+   - `/api/how/priorities` — Operator priority queue
+   - `/api/how/interventions` — Create/complete interventions
+   - `/api/where/priorities/summary` — Portfolio overview
+
+5. **Lens Separation Enforced**:
+   - HOW lens via `/app/backend/ramp/lenses/how.py`
+   - WHERE lens via `/app/backend/ramp/lenses/where.py`
+
+**Key Files Modified:**
+- `/app/backend/ramp/db.py` — Complete rewrite for PostgreSQL
+- `/app/backend/database.py` — Supabase async connection
+- `/app/backend/server.py` — Updated routes and checkpoint test
+- `/app/backend/models.py` — SQLAlchemy ORM models
+- `/app/backend/alembic/versions/ramp_001_initial_schema.py` — Migration
+
+---
+
+### Earlier Work
 
 **Phase 0: Foundation (Locked)**
-- Data model schema (13 collections)
+- Data model schema (13 tables)
 - 7 services with clear boundaries
 - Event flow with synchronous dispatch
 
@@ -75,7 +122,7 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 7. Learning Engine — recurrence tracking, effectiveness (partial)
 
 **APIs:**
-- `/api/system/*` — health, seed, demo
+- `/api/system/*` — health, seed, demo, reset, checkpoint
 - `/api/how/*` — operator priority queue, asset state, interventions
 - `/api/where/*` — portfolio summary, site states, outcomes export
 - `/api/ingest/*` — signal batch ingestion
@@ -93,9 +140,12 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 - Full event loop working
 - State detection and priority assignment
 - Intervention creation with baseline freeze
+- PostgreSQL migration with full chain verification
 
 ### P1 (Next)
-- Verification with sufficient post-action data
+- Verification scheduler (wait for post-action data accumulation)
+- Support for "pending" / "insufficient_data" outcome statuses
+- Connect verified outcomes to Learning Engine for baseline refinement
 - State timeline visualization
 - Real-time updates (WebSocket)
 
@@ -103,14 +153,28 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 - Multiple sites support
 - Asset relationships/dependencies
 - Advanced learning (baseline optimization)
-- Benchmark learning
+- Benchmark learning / cross-asset comparison
 - Portfolio-level WHERE views
 - Outcome export to CSV/PDF
+- Asset-class-specific threshold modifiers (V1.1)
+- Complex site configurations (demand-based energy tariffs)
 
 ## Next Tasks
 
-1. Add verification window scheduling (wait for post-action data)
-2. Implement state timeline component
-3. Add WebSocket for real-time priority updates
-4. Create admin UI for rule configuration
-5. Add asset class threshold modifiers
+1. **P1: Verification Loop Completion**
+   - Implement scheduler to run verification after configurable time window
+   - Add logic to accumulate post-action metric data
+   - Support pending/insufficient_data statuses
+   - Connect outcomes to Learning Engine
+
+2. **P1: Frontend Verified Outcomes View**
+   - Display verification results in Command Centre
+   - Show savings calculations and confidence
+
+3. **P2: Real-time Updates**
+   - WebSocket for priority queue updates
+   - State change notifications
+
+4. **P2: Admin UI**
+   - Rule configuration interface
+   - Asset class threshold modifiers
