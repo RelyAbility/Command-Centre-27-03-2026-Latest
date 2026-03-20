@@ -1071,8 +1071,203 @@ async def verify_relational_chain(db: RAMPDatabase = Depends(get_db)):
 
 
 # =============================================================================
-# VERIFICATION SCHEDULER ROUTES
+# PROOF OF VALUE VIEW
 # =============================================================================
+
+@system_router.get("/value-summary")
+async def get_value_summary(db: RAMPDatabase = Depends(get_db)):
+    """
+    Single aggregated view showing proof of value.
+    
+    Returns everything needed to answer in under a minute:
+    1. Where is value being lost? → Current VaR/day
+    2. What to do about it? → Top priority actions with recoverable value + confidence
+    3. What has been recovered? → Recently verified outcomes with savings
+    4. Is the system working? → Loop integrity
+    """
+    from sqlalchemy import text as sql_text
+    
+    # 1. CURRENT VALUE AT RISK
+    priorities = await db.get_active_priorities()
+    
+    total_var = sum(
+        p.get("economic_impact", {}).get("value_at_risk_per_day", 0) 
+        if isinstance(p.get("economic_impact"), dict) else 0
+        for p in priorities
+    )
+    
+    # Get site for currency
+    site = await db.get_site("demo-site-001")
+    currency = site.get("currency", "USD") if site else "USD"
+    
+    # 2. TOP PRIORITY ACTIONS (max 5)
+    top_actions = []
+    for p in priorities[:5]:
+        # Get state for confidence
+        states = await db.get_active_states(p.get("asset_id"))
+        state = next((s for s in states if s["id"] == p.get("state_id")), None)
+        
+        # Get asset name
+        asset = await db.get_asset(p.get("asset_id"))
+        
+        economic = p.get("economic_impact", {})
+        if isinstance(economic, str):
+            import json
+            try:
+                economic = json.loads(economic)
+            except Exception:
+                economic = {}
+        
+        drivers = p.get("drivers", [])
+        if isinstance(drivers, str):
+            import json
+            try:
+                drivers = json.loads(drivers)
+            except Exception:
+                drivers = []
+        
+        top_actions.append({
+            "priority_id": p["id"],
+            "state_id": p.get("state_id"),
+            "asset_id": p.get("asset_id"),
+            "asset_name": asset.get("name") if asset else "Unknown",
+            "priority_band": p.get("priority_band"),
+            "state_type": state.get("state_type") if state else "Unknown",
+            "state_family": state.get("state_family") if state else "Unknown",
+            "value_at_risk_per_day": economic.get("value_at_risk_per_day", 0),
+            "value_recoverable_per_day": economic.get("value_recoverable_per_day", 0),
+            "confidence": state.get("confidence", 0) if state else 0,
+            "confidence_band": state.get("confidence_band", "UNKNOWN") if state else "UNKNOWN",
+            "drivers": drivers[:2]  # Top 2 drivers only
+        })
+    
+    # 3. RECENTLY VERIFIED OUTCOMES
+    verified_outcomes_query = await db.session.execute(
+        sql_text("""
+            SELECT 
+                o.id as outcome_id,
+                o.intervention_id,
+                o.savings_value,
+                o.savings_type,
+                o.savings_unit,
+                o.confidence,
+                o.confidence_band,
+                o.status,
+                o.verified_at,
+                o.verification_window_start,
+                o.verification_window_end,
+                o.frozen_baseline_value,
+                o.actual_value,
+                i.intervention_type,
+                i.completed_at as intervention_completed_at,
+                a.name as asset_name
+            FROM ramp_outcomes o
+            JOIN ramp_interventions i ON o.intervention_id = i.id
+            JOIN ramp_assets a ON i.asset_id = a.id
+            WHERE o.status = 'VERIFIED'
+            ORDER BY o.verified_at DESC
+            LIMIT 5
+        """)
+    )
+    
+    verified_outcomes = []
+    for row in verified_outcomes_query.mappings():
+        row_dict = dict(row)
+        
+        # Calculate time to verify
+        verified_at = row_dict.get("verified_at")
+        completed_at = row_dict.get("intervention_completed_at")
+        
+        time_to_verify_hours = None
+        if verified_at and completed_at:
+            if isinstance(verified_at, str):
+                verified_at = datetime.fromisoformat(verified_at.replace("Z", "+00:00"))
+            if isinstance(completed_at, str):
+                completed_at = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+            time_to_verify_hours = round((verified_at - completed_at).total_seconds() / 3600, 1)
+        
+        verified_outcomes.append({
+            "outcome_id": row_dict["outcome_id"],
+            "asset_name": row_dict["asset_name"],
+            "intervention_type": row_dict["intervention_type"],
+            "savings_value": round(row_dict.get("savings_value") or 0, 2),
+            "savings_unit": row_dict.get("savings_unit", "units"),
+            "savings_type": row_dict.get("savings_type"),
+            "confidence": round(row_dict.get("confidence") or 0, 2),
+            "confidence_band": row_dict.get("confidence_band"),
+            "time_to_verify_hours": time_to_verify_hours,
+            "verified_at": row_dict.get("verified_at").isoformat() if row_dict.get("verified_at") else None
+        })
+    
+    # Calculate total savings recovered
+    total_savings = sum(o.get("savings_value", 0) for o in verified_outcomes)
+    
+    # 4. LOOP INTEGRITY SIGNAL
+    # Count outcomes by status
+    integrity_query = await db.session.execute(
+        sql_text("""
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM ramp_outcomes
+            GROUP BY status
+        """)
+    )
+    
+    integrity = {
+        "VERIFIED": 0,
+        "PENDING": 0,
+        "INSUFFICIENT_DATA": 0
+    }
+    for row in integrity_query.mappings():
+        status = row["status"]
+        if status in integrity:
+            integrity[status] = row["count"]
+    
+    total_outcomes = sum(integrity.values())
+    
+    # Calculate verification rate (only for outcomes that have been processed)
+    processed = integrity["VERIFIED"] + integrity["INSUFFICIENT_DATA"]
+    verification_rate = round(integrity["VERIFIED"] / processed * 100, 1) if processed > 0 else None
+    
+    return {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "currency": currency,
+        
+        # 1. WHERE VALUE IS BEING LOST
+        "value_at_risk": {
+            "total_per_day": round(total_var, 2),
+            "active_priorities": len(priorities),
+            "breakdown_by_band": {
+                band: sum(
+                    p.get("economic_impact", {}).get("value_at_risk_per_day", 0) 
+                    if isinstance(p.get("economic_impact"), dict) else 0
+                    for p in priorities if p.get("priority_band") == band
+                )
+                for band in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+            }
+        },
+        
+        # 2. WHAT TO DO ABOUT IT
+        "top_actions": top_actions,
+        
+        # 3. WHAT HAS BEEN RECOVERED
+        "recovered_value": {
+            "total_savings": round(total_savings, 2),
+            "verified_outcomes_count": len(verified_outcomes),
+            "recent_outcomes": verified_outcomes
+        },
+        
+        # 4. LOOP INTEGRITY
+        "loop_integrity": {
+            "verified": integrity["VERIFIED"],
+            "pending": integrity["PENDING"],
+            "insufficient_data": integrity["INSUFFICIENT_DATA"],
+            "total_outcomes": total_outcomes,
+            "verification_rate_percent": verification_rate,
+            "status": "HEALTHY" if verification_rate is None or verification_rate >= 70 else "DEGRADED" if verification_rate >= 40 else "POOR"
+        }
+    }
 
 @system_router.post("/verification/run")
 async def run_verification_scheduler(db: RAMPDatabase = Depends(get_db)):
