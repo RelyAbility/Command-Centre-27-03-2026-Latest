@@ -351,7 +351,472 @@ async def simulate_drift(db: RAMPDatabase = Depends(get_db)):
     }
 
 
-@system_router.post("/demo/complete-verification-flow")
+@system_router.post("/demo/first-five-minutes")
+async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
+    """
+    First 5 Minutes Experience
+    ==========================
+    
+    A guided entry that establishes credibility and demonstrates the full loop.
+    Works for both new user onboarding and live demos.
+    
+    Creates:
+    1. A realistic site with multiple assets (credibility)
+    2. Established baselines showing normal operation (context)
+    3. One completed verification loop (proof the system works)
+    4. 2-3 current active issues (actionable priorities)
+    5. Historical data showing this is continuous monitoring
+    """
+    from sqlalchemy import text as sql_text
+    
+    # Reset everything
+    tables = [
+        "ramp_learning", "ramp_outcomes", "ramp_interventions",
+        "ramp_priorities", "ramp_states", "ramp_baselines",
+        "ramp_metrics", "ramp_signals", "ramp_rules",
+        "ramp_assets", "ramp_systems", "ramp_sites", "ramp_organisations"
+    ]
+    await db.session.execute(sql_text("DROP TRIGGER IF EXISTS ramp_events_immutable ON ramp_events"))
+    await db.session.execute(sql_text("DELETE FROM ramp_events"))
+    await db.session.execute(sql_text("""
+        CREATE TRIGGER ramp_events_immutable
+        BEFORE UPDATE OR DELETE ON ramp_events
+        FOR EACH ROW
+        EXECUTE FUNCTION ramp_prevent_event_modification()
+    """))
+    for table in tables:
+        await db.session.execute(sql_text(f"DELETE FROM {table}"))
+    await db.session.commit()
+    
+    now = now_utc()
+    
+    # =========================================================================
+    # STEP 1: ESTABLISH CREDIBILITY - Real Site with Multiple Assets
+    # =========================================================================
+    
+    await db.create_organisation("Riverside Manufacturing Group", id="rmg-001")
+    
+    site = await db.create_site({
+        "id": "site-riverside",
+        "organisation_id": "rmg-001",
+        "name": "Riverside Plant - Building A",
+        "timezone": "America/Chicago",
+        "currency": "USD",
+        "energy_tariff": 0.11,
+        "hourly_production_value": 850,
+        "production_margin_per_unit": 12.50,
+        "operating_hours_per_day": 20,
+        "site_category": "MANUFACTURING"
+    })
+    
+    # Create realistic systems
+    await db.create_system({"id": "sys-hvac", "site_id": "site-riverside", "name": "HVAC System"})
+    await db.create_system({"id": "sys-compressed-air", "site_id": "site-riverside", "name": "Compressed Air"})
+    await db.create_system({"id": "sys-cooling", "site_id": "site-riverside", "name": "Process Cooling"})
+    
+    # Create multiple realistic assets
+    assets = [
+        {
+            "id": "asset-ahu-01",
+            "system_id": "sys-hvac",
+            "name": "Air Handling Unit 1",
+            "asset_class": "HVAC",
+            "criticality_score": 75,
+            "estimated_repair_cost": 4500
+        },
+        {
+            "id": "asset-comp-main",
+            "system_id": "sys-compressed-air",
+            "name": "Main Air Compressor",
+            "asset_class": "COMPRESSOR",
+            "criticality_score": 90,
+            "estimated_repair_cost": 8500
+        },
+        {
+            "id": "asset-chiller-01",
+            "system_id": "sys-cooling",
+            "name": "Process Chiller 1",
+            "asset_class": "CHILLER",
+            "criticality_score": 85,
+            "estimated_repair_cost": 12000
+        },
+        {
+            "id": "asset-vfd-pump",
+            "system_id": "sys-cooling",
+            "name": "VFD Coolant Pump",
+            "asset_class": "PUMP",
+            "criticality_score": 60,
+            "estimated_repair_cost": 2200
+        }
+    ]
+    
+    for asset_data in assets:
+        await db.create_asset(asset_data)
+    
+    # Create detection rules
+    rules = [
+        {
+            "id": "rule-energy-drift",
+            "name": "Energy Consumption Drift",
+            "description": "Detects sustained energy consumption above baseline",
+            "state_family": "ENERGY",
+            "state_type": "DRIFT",
+            "metric_type": "energy_intensity",
+            "operator": "gt",
+            "threshold_multiplier": 1.15,
+            "duration_threshold_minutes": 30,
+            "severity_base": 4,
+            "is_active": True
+        },
+        {
+            "id": "rule-efficiency-drop",
+            "name": "Efficiency Degradation",
+            "description": "Detects drop in operational efficiency",
+            "state_family": "OPERATIONAL",
+            "state_type": "DEGRADATION",
+            "metric_type": "efficiency",
+            "operator": "lt",
+            "threshold_multiplier": 0.85,
+            "duration_threshold_minutes": 60,
+            "severity_base": 3,
+            "is_active": True
+        }
+    ]
+    
+    for rule_data in rules:
+        await db.create_rule(rule_data)
+    
+    # =========================================================================
+    # STEP 2: ESTABLISH BASELINE CONTEXT - Show Normal Operation History
+    # =========================================================================
+    
+    # Create baselines for all assets (showing 14 days of established behaviour)
+    baselines = {}
+    baseline_data = [
+        {"asset_id": "asset-ahu-01", "metric_type": "energy_intensity", "value": 28.5, "min": 25.0, "max": 32.0, "confidence": 0.88},
+        {"asset_id": "asset-comp-main", "metric_type": "energy_intensity", "value": 52.0, "min": 47.0, "max": 57.0, "confidence": 0.92},
+        {"asset_id": "asset-chiller-01", "metric_type": "energy_intensity", "value": 68.0, "min": 62.0, "max": 74.0, "confidence": 0.85},
+        {"asset_id": "asset-vfd-pump", "metric_type": "energy_intensity", "value": 12.5, "min": 11.0, "max": 14.0, "confidence": 0.90},
+    ]
+    
+    for bl in baseline_data:
+        baseline = await db.create_baseline({
+            "asset_id": bl["asset_id"],
+            "metric_type": bl["metric_type"],
+            "context_signature": {"runtime_state": "RUNNING", "shift": "DAY"},
+            "baseline_value": bl["value"],
+            "baseline_min": bl["min"],
+            "baseline_max": bl["max"],
+            "confidence": bl["confidence"],
+            "confidence_band": "HIGH" if bl["confidence"] >= 0.85 else "MEDIUM",
+            "valid_from": now - timedelta(days=14),
+            "sample_count": 336,
+            "data_window_days": 14
+        })
+        baselines[bl["asset_id"]] = baseline
+    
+    # =========================================================================
+    # STEP 3: ONE COMPLETED LOOP - Proof the System Works
+    # =========================================================================
+    
+    # Create a PAST verified intervention for the VFD pump
+    # This shows the system has already caught and resolved an issue
+    
+    # 3a. Create past state (3 days ago)
+    past_state = await db.create_state({
+        "asset_id": "asset-vfd-pump",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": baselines["asset-vfd-pump"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 4,
+        "severity_band": "MEDIUM",
+        "severity_components": {"base": 3, "duration_modifier": 0.5, "deviation_modifier": 0.5},
+        "confidence": 0.78,
+        "confidence_band": "MEDIUM",
+        "confidence_components": {"data_quality": 0.82, "baseline_confidence": 0.90},
+        "deviation_percent": 18.5,
+        "started_at": now - timedelta(days=3, hours=4),
+        "duration_minutes": 180,
+        "ended_at": now - timedelta(days=3, hours=1),
+        "resolution_type": "INTERVENTION"
+    })
+    
+    # 3b. Create past intervention
+    past_intervention = await db.create_intervention({
+        "state_id": past_state["id"],
+        "asset_id": "asset-vfd-pump",
+        "frozen_baseline_id": baselines["asset-vfd-pump"]["id"],
+        "intervention_type": "CALIBRATION",
+        "description": "Recalibrated VFD frequency setpoints. Found drift in speed controller.",
+        "created_by": "mike.johnson@riverside.com"
+    })
+    
+    # Set completed_at in the past
+    await db.session.execute(
+        sql_text("UPDATE ramp_interventions SET completed_at = :completed_at WHERE id = :id"),
+        {"completed_at": now - timedelta(days=3, hours=1), "id": past_intervention["id"]}
+    )
+    await db.session.commit()
+    
+    # 3c. Create VERIFIED outcome (showing real savings)
+    await db.create_outcome({
+        "intervention_id": past_intervention["id"],
+        "frozen_baseline_id": baselines["asset-vfd-pump"]["id"],
+        "verification_window_start": now - timedelta(days=3, hours=1),
+        "verification_window_end": now - timedelta(days=3),
+        "frozen_baseline_value": 12.5,
+        "actual_value": 11.2,
+        "savings_value": 1.3,
+        "savings_unit": "kWh",
+        "savings_type": "energy",
+        "confidence": 0.91,
+        "confidence_band": "HIGH",
+        "status": "VERIFIED",
+        "verified_at": now - timedelta(days=2, hours=20),
+        "verification_notes": "Verified with 18 samples over 1h window. Energy consumption returned to baseline."
+    })
+    
+    # 3d. Update learning record
+    await db.upsert_learning_record({
+        "asset_id": "asset-vfd-pump",
+        "state_type": "DRIFT",
+        "occurrence_count": 1,
+        "intervention_count": 1,
+        "total_savings": 1.3,
+        "avg_effectiveness": 1.3,
+        "first_occurred_at": now - timedelta(days=3, hours=4),
+        "last_occurred_at": now - timedelta(days=3, hours=4)
+    })
+    
+    # 3e. Create event for audit trail
+    await db.create_event({
+        "event_type": "outcome_verified",
+        "entity_type": "outcome",
+        "entity_id": past_intervention["id"],
+        "payload": {
+            "savings_value": 1.3,
+            "savings_unit": "kWh",
+            "confidence": 0.91,
+            "message": "VFD pump calibration verified - 1.3 kWh/hour savings confirmed"
+        }
+    })
+    
+    # =========================================================================
+    # STEP 4: CURRENT ACTIVE ISSUES - 2-3 Actionable Priorities
+    # =========================================================================
+    
+    current_issues = []
+    
+    # Issue 1: Main Compressor - HIGH priority energy drift (22% above baseline)
+    comp_state = await db.create_state({
+        "asset_id": "asset-comp-main",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": baselines["asset-comp-main"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 6,
+        "severity_band": "HIGH",
+        "severity_components": {"base": 4, "duration_modifier": 1, "deviation_modifier": 1},
+        "confidence": 0.89,
+        "confidence_band": "HIGH",
+        "confidence_components": {"data_quality": 0.92, "baseline_confidence": 0.92},
+        "deviation_percent": 22.0,
+        "started_at": now - timedelta(hours=3),
+        "duration_minutes": 180
+    })
+    
+    comp_priority = await db.create_priority({
+        "state_id": comp_state["id"],
+        "asset_id": "asset-comp-main",
+        "priority_score": 78,
+        "priority_band": "HIGH",
+        "priority_type": "OPERATIONAL",
+        "drivers": [
+            "22% energy drift sustained for 3 hours",
+            "Critical production asset (90 criticality)",
+            "Estimated $12.60/hr excess energy cost"
+        ],
+        "economic_impact": {
+            "value_at_risk_per_day": 151.20,
+            "value_recoverable_per_day": 128.52,
+            "estimated_annual_impact": 55188
+        },
+        "score_components": {"severity": 45, "economic": 25, "criticality": 30}
+    })
+    current_issues.append({"asset": "Main Air Compressor", "state": comp_state, "priority": comp_priority})
+    
+    # Issue 2: AHU - MEDIUM priority efficiency drop (12% below baseline)
+    ahu_state = await db.create_state({
+        "asset_id": "asset-ahu-01",
+        "rule_id": "rule-efficiency-drop",
+        "baseline_id": baselines["asset-ahu-01"]["id"],
+        "state_family": "OPERATIONAL",
+        "state_type": "DEGRADATION",
+        "severity_score": 4,
+        "severity_band": "MEDIUM",
+        "severity_components": {"base": 3, "duration_modifier": 0.5, "deviation_modifier": 0.5},
+        "confidence": 0.76,
+        "confidence_band": "MEDIUM",
+        "confidence_components": {"data_quality": 0.80, "baseline_confidence": 0.88},
+        "deviation_percent": 12.0,
+        "started_at": now - timedelta(hours=6),
+        "duration_minutes": 360
+    })
+    
+    ahu_priority = await db.create_priority({
+        "state_id": ahu_state["id"],
+        "asset_id": "asset-ahu-01",
+        "priority_score": 52,
+        "priority_band": "MEDIUM",
+        "priority_type": "OPERATIONAL",
+        "drivers": [
+            "12% efficiency drop over 6 hours",
+            "Filter differential pressure increasing",
+            "May indicate clogged filters"
+        ],
+        "economic_impact": {
+            "value_at_risk_per_day": 42.50,
+            "value_recoverable_per_day": 36.12,
+            "estimated_annual_impact": 15513
+        },
+        "score_components": {"severity": 35, "economic": 20, "criticality": 25}
+    })
+    current_issues.append({"asset": "Air Handling Unit 1", "state": ahu_state, "priority": ahu_priority})
+    
+    # Issue 3: Chiller - LOW priority slight drift (8% above baseline, recent)
+    chiller_state = await db.create_state({
+        "asset_id": "asset-chiller-01",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": baselines["asset-chiller-01"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 2,
+        "severity_band": "LOW",
+        "severity_components": {"base": 2, "duration_modifier": 0, "deviation_modifier": 0},
+        "confidence": 0.65,
+        "confidence_band": "MEDIUM",
+        "confidence_components": {"data_quality": 0.70, "baseline_confidence": 0.85},
+        "deviation_percent": 8.0,
+        "started_at": now - timedelta(minutes=45),
+        "duration_minutes": 45
+    })
+    
+    chiller_priority = await db.create_priority({
+        "state_id": chiller_state["id"],
+        "asset_id": "asset-chiller-01",
+        "priority_score": 28,
+        "priority_band": "LOW",
+        "priority_type": "MONITORING",
+        "drivers": [
+            "8% energy drift detected 45 minutes ago",
+            "Below action threshold - monitoring",
+            "May self-correct with load changes"
+        ],
+        "economic_impact": {
+            "value_at_risk_per_day": 18.90,
+            "value_recoverable_per_day": 12.30,
+            "estimated_annual_impact": 6899
+        },
+        "score_components": {"severity": 20, "economic": 15, "criticality": 20}
+    })
+    current_issues.append({"asset": "Process Chiller 1", "state": chiller_state, "priority": chiller_priority})
+    
+    # =========================================================================
+    # STEP 5: CONTINUOUS MONITORING NARRATIVE
+    # =========================================================================
+    
+    # Create events showing ongoing monitoring
+    await db.create_event({
+        "event_type": "baseline_updated",
+        "entity_type": "baseline",
+        "entity_id": baselines["asset-comp-main"]["id"],
+        "payload": {"message": "Baseline recalculated with latest 14-day window", "sample_count": 336}
+    })
+    
+    await db.create_event({
+        "event_type": "state_detected",
+        "entity_type": "state",
+        "entity_id": comp_state["id"],
+        "payload": {"asset": "Main Air Compressor", "deviation": "22%", "action": "Priority created"}
+    })
+    
+    # Calculate totals
+    total_var = sum(
+        p.get("economic_impact", {}).get("value_at_risk_per_day", 0) 
+        if isinstance(p.get("economic_impact"), dict) else 0
+        for p in [comp_priority, ahu_priority, chiller_priority]
+    )
+    
+    return {
+        "status": "ready",
+        "narrative": {
+            "site": {
+                "name": "Riverside Plant - Building A",
+                "assets_monitored": 4,
+                "systems": ["HVAC", "Compressed Air", "Process Cooling"],
+                "baseline_data_days": 14,
+                "context": "All assets have established baselines from 2 weeks of normal operation."
+            },
+            "completed_loop": {
+                "asset": "VFD Coolant Pump",
+                "issue": "18.5% energy drift detected 3 days ago",
+                "action": "Calibration - recalibrated VFD frequency setpoints",
+                "outcome": "Verified +1.3 kWh/hr savings with 91% confidence",
+                "time_to_verify": "1 hour",
+                "message": "This demonstrates the full RAMP loop: detection → action → verification → learning."
+            },
+            "current_value_at_risk": {
+                "total_per_day": round(total_var, 2),
+                "currency": "USD",
+                "active_issues": 3,
+                "breakdown": [
+                    {"asset": "Main Air Compressor", "var": 151.20, "band": "HIGH"},
+                    {"asset": "Air Handling Unit 1", "var": 42.50, "band": "MEDIUM"},
+                    {"asset": "Process Chiller 1", "var": 18.90, "band": "LOW"}
+                ]
+            },
+            "priority_actions": [
+                {
+                    "rank": 1,
+                    "asset": "Main Air Compressor",
+                    "issue": "22% energy drift for 3 hours",
+                    "band": "HIGH",
+                    "confidence": "89%",
+                    "var_per_day": 151.20,
+                    "recommended_action": "Inspect inlet filter and check for leaks in downstream piping",
+                    "state_id": comp_state["id"]
+                },
+                {
+                    "rank": 2,
+                    "asset": "Air Handling Unit 1",
+                    "issue": "12% efficiency drop for 6 hours",
+                    "band": "MEDIUM",
+                    "confidence": "76%",
+                    "var_per_day": 42.50,
+                    "recommended_action": "Check filter differential pressure and consider filter replacement",
+                    "state_id": ahu_state["id"]
+                },
+                {
+                    "rank": 3,
+                    "asset": "Process Chiller 1",
+                    "issue": "8% energy drift for 45 minutes",
+                    "band": "LOW",
+                    "confidence": "65%",
+                    "var_per_day": 18.90,
+                    "recommended_action": "Monitor - may self-correct with load changes",
+                    "state_id": chiller_state["id"]
+                }
+            ],
+            "continuous_monitoring": {
+                "message": "RAMP continuously monitors all assets against their established baselines.",
+                "assets_healthy": 1,
+                "assets_in_state": 3,
+                "learning_active": True,
+                "next_baseline_refresh": "Daily at 00:00 UTC"
+            }
+        }
+    }
 async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
     """
     Demonstrate the complete verification flow end-to-end.

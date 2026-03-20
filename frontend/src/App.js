@@ -26,10 +26,53 @@ const INTEGRITY_COLORS = {
   POOR: "text-red-400 bg-red-500/10 border-red-500/20",
 };
 
+// Guided experience steps
+const GUIDE_STEPS = [
+  {
+    id: "welcome",
+    title: "Welcome to RAMP",
+    subtitle: "Intelligent monitoring that learns from your operations",
+    highlight: null,
+  },
+  {
+    id: "site",
+    title: "Your Facility",
+    subtitle: "4 assets monitored with 14 days of baseline data",
+    highlight: "site-context",
+  },
+  {
+    id: "completed-loop",
+    title: "Proven Results",
+    subtitle: "One issue already detected, resolved, and verified",
+    highlight: "completed-loop",
+  },
+  {
+    id: "value-at-risk",
+    title: "Current Value at Risk",
+    subtitle: "Real-time visibility into where value is being lost",
+    highlight: "value-at-risk",
+  },
+  {
+    id: "actions",
+    title: "Priority Actions",
+    subtitle: "Ranked by impact, with clear explanations",
+    highlight: "priority-actions",
+  },
+  {
+    id: "continuous",
+    title: "Continuous Monitoring",
+    subtitle: "Not a one-off analysis — RAMP watches 24/7",
+    highlight: "continuous",
+  },
+];
+
 function App() {
+  const [narrative, setNarrative] = useState(null);
   const [valueSummary, setValueSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [guideStep, setGuideStep] = useState(0);
+  const [showGuide, setShowGuide] = useState(false);
+  const [demoReady, setDemoReady] = useState(false);
   const [showIntervention, setShowIntervention] = useState(false);
   const [selectedAction, setSelectedAction] = useState(null);
   const [interventionForm, setInterventionForm] = useState({
@@ -43,13 +86,26 @@ function App() {
     try {
       const res = await axios.get(`${API}/system/value-summary`);
       setValueSummary(res.data);
-      setLastUpdate(new Date());
-      setLoading(false);
     } catch (e) {
       console.error("Failed to fetch value summary", e);
-      setLoading(false);
     }
   }, []);
+
+  // Start First 5 Minutes experience
+  const startFirstFiveMinutes = async () => {
+    setLoading(true);
+    try {
+      const res = await axios.post(`${API}/system/demo/first-five-minutes`);
+      setNarrative(res.data.narrative);
+      setDemoReady(true);
+      setShowGuide(true);
+      setGuideStep(0);
+      await fetchValueSummary();
+    } catch (e) {
+      setMessage({ type: "error", text: "Failed to initialize demo" });
+    }
+    setLoading(false);
+  };
 
   // Create intervention
   const createIntervention = async () => {
@@ -61,7 +117,7 @@ function App() {
         state_id: selectedAction.state_id,
         intervention_type: interventionForm.type,
         description: interventionForm.description,
-        created_by: "operator@ramp.io",
+        created_by: "operator@riverside.com",
       });
       setMessage({
         type: "success",
@@ -77,27 +133,28 @@ function App() {
     setLoading(false);
   };
 
-  // Demo: Simulate full flow
-  const runFullDemo = async () => {
-    setLoading(true);
-    try {
-      await axios.post(`${API}/system/demo/complete-verification-flow`);
-      setMessage({
-        type: "success",
-        text: "Full verification flow completed",
-      });
-      await fetchValueSummary();
-    } catch (e) {
-      setMessage({ type: "error", text: "Failed to run demo" });
+  // Guide navigation
+  const nextStep = () => {
+    if (guideStep < GUIDE_STEPS.length - 1) {
+      setGuideStep(guideStep + 1);
+    } else {
+      setShowGuide(false);
     }
-    setLoading(false);
   };
 
-  // Initial load and polling
+  const prevStep = () => {
+    if (guideStep > 0) {
+      setGuideStep(guideStep - 1);
+    }
+  };
+
+  const skipGuide = () => {
+    setShowGuide(false);
+  };
+
+  // Initial load
   useEffect(() => {
     fetchValueSummary();
-    const interval = setInterval(fetchValueSummary, 30000);
-    return () => clearInterval(interval);
   }, [fetchValueSummary]);
 
   // Clear message
@@ -108,50 +165,149 @@ function App() {
     }
   }, [message]);
 
-  if (loading && !valueSummary) {
+  const currentStep = GUIDE_STEPS[guideStep];
+  const isHighlighted = (id) => showGuide && currentStep?.highlight === id;
+
+  // Landing state - before demo starts
+  if (!demoReady) {
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-        <div className="text-slate-400">Loading...</div>
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="max-w-2xl text-center">
+          <h1 className="text-4xl font-bold text-white mb-4">
+            RAMP
+          </h1>
+          <p className="text-xl text-slate-300 mb-2">
+            State-Based Industrial Intelligence
+          </p>
+          <p className="text-slate-400 mb-8 max-w-lg mx-auto">
+            See where value is being lost, take action with confidence, and verify the results.
+            All continuously, all automatically.
+          </p>
+          
+          <button
+            onClick={startFirstFiveMinutes}
+            disabled={loading}
+            className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 rounded-xl text-lg font-semibold transition-all transform hover:scale-105 disabled:opacity-50 disabled:transform-none"
+            data-testid="start-demo-btn"
+          >
+            {loading ? "Initializing..." : "Start Demo"}
+          </button>
+          
+          <p className="text-sm text-slate-500 mt-6">
+            Takes about 5 minutes • No login required
+          </p>
+        </div>
       </div>
     );
   }
 
-  const { value_at_risk, top_actions, recovered_value, loop_integrity, currency } = valueSummary || {};
-
   return (
     <div className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Guide Overlay */}
+      {showGuide && (
+        <div className="fixed inset-0 z-50 pointer-events-none">
+          {/* Darkened background except highlighted area */}
+          <div className="absolute inset-0 bg-black/60" />
+          
+          {/* Guide Card */}
+          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 pointer-events-auto">
+            <div className="bg-slate-800 rounded-2xl border border-slate-600 p-6 w-[500px] shadow-2xl">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs text-emerald-400 font-medium uppercase tracking-wider">
+                  Step {guideStep + 1} of {GUIDE_STEPS.length}
+                </span>
+                <button
+                  onClick={skipGuide}
+                  className="text-xs text-slate-400 hover:text-white"
+                >
+                  Skip tour
+                </button>
+              </div>
+              <h3 className="text-xl font-semibold text-white mb-1">
+                {currentStep?.title}
+              </h3>
+              <p className="text-slate-300 mb-4">
+                {currentStep?.subtitle}
+              </p>
+              
+              {/* Step-specific content */}
+              {currentStep?.id === "welcome" && (
+                <p className="text-sm text-slate-400 mb-4">
+                  Let's walk through what RAMP can do for your operations.
+                </p>
+              )}
+              {currentStep?.id === "completed-loop" && narrative?.completed_loop && (
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg p-3 mb-4">
+                  <p className="text-sm text-emerald-300">
+                    <strong>{narrative.completed_loop.asset}:</strong> {narrative.completed_loop.issue} → {narrative.completed_loop.outcome}
+                  </p>
+                </div>
+              )}
+              {currentStep?.id === "continuous" && (
+                <p className="text-sm text-slate-400 mb-4">
+                  RAMP learns from every intervention to improve detection and recommendations.
+                </p>
+              )}
+              
+              <div className="flex items-center justify-between">
+                <div className="flex gap-1">
+                  {GUIDE_STEPS.map((_, idx) => (
+                    <div
+                      key={idx}
+                      className={`w-2 h-2 rounded-full ${
+                        idx === guideStep ? "bg-emerald-400" : "bg-slate-600"
+                      }`}
+                    />
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  {guideStep > 0 && (
+                    <button
+                      onClick={prevStep}
+                      className="px-4 py-2 text-sm text-slate-400 hover:text-white"
+                    >
+                      Back
+                    </button>
+                  )}
+                  <button
+                    onClick={nextStep}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium"
+                    data-testid="guide-next-btn"
+                  >
+                    {guideStep === GUIDE_STEPS.length - 1 ? "Get Started" : "Continue"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-slate-800/80 backdrop-blur-sm border-b border-slate-700/50 sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <h1 className="text-xl font-semibold tracking-tight">
-                RAMP <span className="text-slate-400 font-normal">Value Dashboard</span>
+                RAMP <span className="text-slate-400 font-normal">Command Centre</span>
               </h1>
-              {loop_integrity && (
+              {valueSummary?.loop_integrity && (
                 <span
-                  className={`text-xs px-2.5 py-1 rounded-full border ${INTEGRITY_COLORS[loop_integrity.status]}`}
+                  className={`text-xs px-2.5 py-1 rounded-full border ${INTEGRITY_COLORS[valueSummary.loop_integrity.status]}`}
                   data-testid="loop-status"
                 >
-                  Loop {loop_integrity.status}
+                  {valueSummary.loop_integrity.status}
                 </span>
               )}
             </div>
-            <div className="flex items-center gap-3">
-              {lastUpdate && (
-                <span className="text-xs text-slate-500">
-                  Updated {lastUpdate.toLocaleTimeString()}
-                </span>
-              )}
+            {!showGuide && (
               <button
-                onClick={runFullDemo}
-                disabled={loading}
-                className="px-3 py-1.5 text-sm bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors disabled:opacity-50"
-                data-testid="run-demo-btn"
+                onClick={() => { setShowGuide(true); setGuideStep(0); }}
+                className="text-sm text-slate-400 hover:text-white"
               >
-                Run Demo
+                Replay tour
               </button>
-            </div>
+            )}
           </div>
         </div>
       </header>
@@ -169,232 +325,216 @@ function App() {
       )}
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-6 py-8">
-        {/* Top Row: Value at Risk + Loop Integrity */}
-        <div className="grid grid-cols-3 gap-6 mb-8">
-          {/* VALUE AT RISK - Hero Card */}
-          <div className="col-span-2 bg-gradient-to-br from-slate-800 to-slate-800/50 rounded-2xl border border-slate-700/50 p-6">
-            <div className="flex items-start justify-between mb-6">
+      <main className="max-w-7xl mx-auto px-6 py-8 pb-24">
+        {/* Site Context */}
+        <div 
+          className={`mb-6 p-4 rounded-xl bg-slate-800/50 border transition-all duration-300 ${
+            isHighlighted("site-context") 
+              ? "border-emerald-500 ring-2 ring-emerald-500/30 relative z-[60]" 
+              : "border-slate-700/50"
+          }`}
+          data-testid="site-context"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-lg font-medium text-white">
+                {narrative?.site?.name || "Loading..."}
+              </h2>
+              <p className="text-sm text-slate-400">
+                {narrative?.site?.assets_monitored || 0} assets monitored • {narrative?.site?.baseline_data_days || 14} days baseline data
+              </p>
+            </div>
+            <div className="flex gap-2">
+              {narrative?.site?.systems?.map((system, idx) => (
+                <span key={idx} className="px-2 py-1 bg-slate-700 rounded text-xs text-slate-300">
+                  {system}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* Top Row: Completed Loop + Value at Risk */}
+        <div className="grid grid-cols-3 gap-6 mb-6">
+          {/* COMPLETED LOOP - Proof */}
+          <div 
+            className={`bg-emerald-500/5 rounded-2xl border p-5 transition-all duration-300 ${
+              isHighlighted("completed-loop") 
+                ? "border-emerald-500 ring-2 ring-emerald-500/30 relative z-[60]" 
+                : "border-emerald-500/20"
+            }`}
+            data-testid="completed-loop"
+          >
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              <h3 className="text-sm font-medium text-emerald-400 uppercase tracking-wider">
+                Completed Loop
+              </h3>
+            </div>
+            
+            {narrative?.completed_loop ? (
+              <>
+                <div className="text-white font-medium mb-1">
+                  {narrative.completed_loop.asset}
+                </div>
+                <div className="text-sm text-slate-400 mb-3">
+                  {narrative.completed_loop.issue}
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex items-start gap-2">
+                    <span className="text-slate-500 mt-0.5">→</span>
+                    <span className="text-slate-300">{narrative.completed_loop.action}</span>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <span className="text-emerald-400 mt-0.5">✓</span>
+                    <span className="text-emerald-300">{narrative.completed_loop.outcome}</span>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="text-slate-500">Loading...</div>
+            )}
+          </div>
+
+          {/* VALUE AT RISK - Hero */}
+          <div 
+            className={`col-span-2 bg-gradient-to-br from-slate-800 to-slate-800/50 rounded-2xl border p-6 transition-all duration-300 ${
+              isHighlighted("value-at-risk") 
+                ? "border-emerald-500 ring-2 ring-emerald-500/30 relative z-[60]" 
+                : "border-slate-700/50"
+            }`}
+            data-testid="value-at-risk"
+          >
+            <div className="flex items-start justify-between mb-4">
               <div>
                 <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-1">
-                  Value at Risk
+                  Current Value at Risk
                 </h2>
                 <div className="flex items-baseline gap-2">
                   <span className="text-5xl font-bold text-amber-400" data-testid="total-var">
-                    ${value_at_risk?.total_per_day?.toLocaleString() || "0"}
+                    ${narrative?.current_value_at_risk?.total_per_day?.toLocaleString() || valueSummary?.value_at_risk?.total_per_day?.toLocaleString() || "0"}
                   </span>
                   <span className="text-xl text-slate-400">/day</span>
                 </div>
               </div>
               <div className="text-right">
-                <div className="text-sm text-slate-400">
-                  {value_at_risk?.active_priorities || 0} active priorities
+                <div className="text-2xl font-semibold text-emerald-400">
+                  {valueSummary?.loop_integrity?.verification_rate_percent || 100}%
                 </div>
+                <div className="text-xs text-slate-400">verification rate</div>
               </div>
             </div>
             
-            {/* VaR by Band */}
+            {/* VaR Breakdown */}
             <div className="flex gap-4">
-              {["CRITICAL", "HIGH", "MEDIUM", "LOW"].map((band) => {
-                const amount = value_at_risk?.breakdown_by_band?.[band] || 0;
-                if (amount === 0) return null;
-                return (
-                  <div key={band} className="flex items-center gap-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>
-                      {band}
-                    </span>
-                    <span className="text-sm text-slate-300">
-                      ${amount.toFixed(0)}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* LOOP INTEGRITY */}
-          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
-            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-4">
-              Loop Integrity
-            </h2>
-            
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300">Verified</span>
-                <span className="text-emerald-400 font-semibold" data-testid="verified-count">
-                  {loop_integrity?.verified || 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300">Pending</span>
-                <span className="text-yellow-400 font-semibold" data-testid="pending-count">
-                  {loop_integrity?.pending || 0}
-                </span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-slate-300">Insufficient</span>
-                <span className="text-red-400 font-semibold" data-testid="insufficient-count">
-                  {loop_integrity?.insufficient_data || 0}
-                </span>
-              </div>
-              
-              {loop_integrity?.verification_rate_percent !== null && (
-                <div className="pt-3 border-t border-slate-700">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-slate-400">Verification Rate</span>
-                    <span className={`font-semibold ${
-                      loop_integrity.verification_rate_percent >= 70 ? "text-emerald-400" :
-                      loop_integrity.verification_rate_percent >= 40 ? "text-yellow-400" : "text-red-400"
-                    }`}>
-                      {loop_integrity.verification_rate_percent}%
-                    </span>
-                  </div>
+              {narrative?.current_value_at_risk?.breakdown?.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[item.band]}`}>
+                    {item.band}
+                  </span>
+                  <span className="text-sm text-slate-300">${item.var?.toFixed(0)}</span>
                 </div>
-              )}
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Middle Row: Top Actions + Recovered Value */}
-        <div className="grid grid-cols-2 gap-6">
-          {/* TOP ACTIONS */}
-          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-                Top Priority Actions
-              </h2>
-              <span className="text-xs text-slate-500">
-                Value recoverable with action
-              </span>
-            </div>
-            
-            {top_actions?.length > 0 ? (
-              <div className="space-y-3" data-testid="top-actions-list">
-                {top_actions.map((action, idx) => (
-                  <div
-                    key={action.priority_id}
-                    className="bg-slate-700/30 rounded-xl p-4 border border-slate-700/50 hover:border-slate-600 transition-colors"
-                    data-testid={`action-${idx}`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[action.priority_band]}`}>
-                          {action.priority_band}
-                        </span>
-                        <span className="font-medium text-white">
-                          {action.asset_name}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-amber-400">
-                          ${action.value_at_risk_per_day?.toFixed(0) || "0"}
-                          <span className="text-xs text-slate-400">/day</span>
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm text-slate-400">
-                          {action.state_family}:{action.state_type}
-                        </div>
-                        <div className="text-xs text-slate-500 mt-1">
-                          {action.drivers?.join(" • ")}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-right">
-                          <div className={`text-sm font-medium ${CONFIDENCE_COLORS[action.confidence_band]}`}>
-                            {action.confidence_band}
-                          </div>
-                          <div className="text-xs text-slate-500">
-                            {(action.confidence * 100).toFixed(0)}% conf
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => {
-                            setSelectedAction(action);
-                            setShowIntervention(true);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium transition-colors"
-                          data-testid={`take-action-${idx}`}
-                        >
-                          Take Action
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-slate-500" data-testid="no-actions">
-                No active priorities
-              </div>
-            )}
+        {/* Priority Actions */}
+        <div 
+          className={`bg-slate-800 rounded-2xl border p-6 mb-6 transition-all duration-300 ${
+            isHighlighted("priority-actions") 
+              ? "border-emerald-500 ring-2 ring-emerald-500/30 relative z-[60]" 
+              : "border-slate-700/50"
+          }`}
+          data-testid="priority-actions"
+        >
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
+              Priority Actions
+            </h2>
+            <span className="text-xs text-slate-500">
+              Ranked by impact • Click to take action
+            </span>
           </div>
-
-          {/* RECOVERED VALUE */}
-          <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
-                Value Recovered
-              </h2>
-              <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-emerald-400" data-testid="total-savings">
-                  ${recovered_value?.total_savings?.toFixed(0) || "0"}
-                </span>
-                <span className="text-sm text-slate-400">total</span>
-              </div>
-            </div>
-            
-            {recovered_value?.recent_outcomes?.length > 0 ? (
-              <div className="space-y-3" data-testid="verified-outcomes-list">
-                {recovered_value.recent_outcomes.map((outcome, idx) => (
-                  <div
-                    key={outcome.outcome_id}
-                    className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4"
-                    data-testid={`outcome-${idx}`}
-                  >
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <div className="font-medium text-white">
-                          {outcome.asset_name}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {outcome.intervention_type}
-                        </div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-semibold text-emerald-400">
-                          +{outcome.savings_value?.toFixed(1)} {outcome.savings_unit}
-                        </div>
-                        <div className="text-xs text-slate-400">
-                          {outcome.savings_type} savings
-                        </div>
-                      </div>
-                    </div>
-                    
-                    <div className="flex items-center justify-between text-sm">
+          
+          <div className="space-y-3" data-testid="actions-list">
+            {narrative?.priority_actions?.map((action, idx) => (
+              <div
+                key={idx}
+                className="bg-slate-700/30 rounded-xl p-4 border border-slate-700/50 hover:border-slate-500 transition-colors cursor-pointer group"
+                onClick={() => {
+                  setSelectedAction(action);
+                  setShowIntervention(true);
+                }}
+                data-testid={`action-${idx}`}
+              >
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl font-bold text-slate-600">#{action.rank}</span>
+                    <div>
                       <div className="flex items-center gap-2">
-                        <span className={`font-medium ${CONFIDENCE_COLORS[outcome.confidence_band]}`}>
-                          {outcome.confidence_band}
+                        <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[action.band]}`}>
+                          {action.band}
                         </span>
-                        <span className="text-slate-500">
-                          {(outcome.confidence * 100).toFixed(0)}% confidence
-                        </span>
+                        <span className="font-medium text-white">{action.asset}</span>
                       </div>
-                      <div className="text-slate-500">
-                        {outcome.time_to_verify_hours}h to verify
-                      </div>
+                      <div className="text-sm text-slate-400 mt-0.5">{action.issue}</div>
                     </div>
                   </div>
-                ))}
+                  <div className="text-right">
+                    <div className="text-xl font-semibold text-amber-400">
+                      ${action.var_per_day?.toFixed(0)}
+                      <span className="text-xs text-slate-400">/day</span>
+                    </div>
+                    <div className={`text-xs ${CONFIDENCE_COLORS[action.confidence >= "80%" ? "HIGH" : action.confidence >= "60%" ? "MEDIUM" : "LOW"]}`}>
+                      {action.confidence} confidence
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-slate-500 italic">
+                    → {action.recommended_action}
+                  </div>
+                  <button
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSelectedAction(action);
+                      setShowIntervention(true);
+                    }}
+                    data-testid={`take-action-${idx}`}
+                  >
+                    Take Action
+                  </button>
+                </div>
               </div>
-            ) : (
-              <div className="text-center py-8 text-slate-500" data-testid="no-outcomes">
-                No verified outcomes yet
+            ))}
+          </div>
+        </div>
+
+        {/* Continuous Monitoring */}
+        <div 
+          className={`bg-slate-800/50 rounded-2xl border p-6 transition-all duration-300 ${
+            isHighlighted("continuous") 
+              ? "border-emerald-500 ring-2 ring-emerald-500/30 relative z-[60]" 
+              : "border-slate-700/50"
+          }`}
+          data-testid="continuous"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse" />
+              <div>
+                <div className="text-white font-medium">Continuous Monitoring Active</div>
+                <div className="text-sm text-slate-400">
+                  {narrative?.continuous_monitoring?.assets_healthy || 0} healthy • {narrative?.continuous_monitoring?.assets_in_state || 0} in active state • Learning enabled
+                </div>
               </div>
-            )}
+            </div>
+            <div className="text-xs text-slate-500">
+              Signal → State → Decision → Action → Learning
+            </div>
           </div>
         </div>
       </main>
@@ -411,9 +551,14 @@ function App() {
             data-testid="intervention-modal"
           >
             <h3 className="text-lg font-semibold mb-1">Create Intervention</h3>
-            <p className="text-sm text-slate-400 mb-6">
-              Taking action on {selectedAction.asset_name}
+            <p className="text-sm text-slate-400 mb-4">
+              {selectedAction.asset}: {selectedAction.issue}
             </p>
+            
+            <div className="bg-slate-700/50 rounded-lg p-3 mb-4">
+              <div className="text-xs text-slate-400 mb-1">Recommended</div>
+              <div className="text-sm text-white">{selectedAction.recommended_action}</div>
+            </div>
             
             <div className="space-y-4">
               <div>
@@ -438,7 +583,7 @@ function App() {
               
               <div>
                 <label className="block text-sm text-slate-400 mb-1.5">
-                  Description
+                  What did you do?
                 </label>
                 <textarea
                   value={interventionForm.description}
@@ -473,11 +618,11 @@ function App() {
       )}
 
       {/* Footer */}
-      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-sm border-t border-slate-700/50 px-6 py-2">
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-sm border-t border-slate-700/50 px-6 py-2 z-30">
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs text-slate-500">
           <span>RAMP Command Centre</span>
           <span className="text-slate-600">
-            Signal → State → Decision → Action → Learning
+            Continuously learning from your operations
           </span>
         </div>
       </footer>
