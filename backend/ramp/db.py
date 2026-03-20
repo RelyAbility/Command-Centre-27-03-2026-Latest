@@ -614,6 +614,151 @@ class RAMPDatabase:
         row = result.mappings().first()
         return dict(row) if row else None
     
+    async def get_pending_outcomes(self) -> List[Dict[str, Any]]:
+        """Get all outcomes with PENDING status that are ready for verification."""
+        result = await self.session.execute(
+            text("""
+                SELECT o.*, i.intervention_type, i.completed_at as intervention_completed_at,
+                       s.state_family, s.state_type
+                FROM ramp_outcomes o
+                JOIN ramp_interventions i ON o.intervention_id = i.id
+                JOIN ramp_states s ON i.state_id = s.id
+                WHERE o.status = 'PENDING'
+                AND i.completed_at IS NOT NULL
+                ORDER BY i.completed_at ASC
+            """)
+        )
+        return [dict(row) for row in result.mappings()]
+    
+    async def update_outcome(self, outcome_id: str, data: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Update an outcome with verification results."""
+        # Build SET clause dynamically
+        set_parts = []
+        params = {"id": outcome_id}
+        
+        for key in ["actual_value", "savings_value", "savings_unit", "savings_type",
+                    "confidence", "confidence_band", "status", "verified_at", 
+                    "verification_notes", "retry_count"]:
+            if key in data:
+                set_parts.append(f"{key} = :{key}")
+                params[key] = data[key]
+        
+        if not set_parts:
+            return await self.get_outcome_by_id(outcome_id)
+        
+        stmt = text(f"UPDATE ramp_outcomes SET {', '.join(set_parts)} WHERE id = :id RETURNING *")
+        result = await self.session.execute(stmt, params)
+        await self.session.commit()
+        row = result.mappings().first()
+        return dict(row) if row else None
+    
+    async def get_outcome_by_id(self, outcome_id: str) -> Optional[Dict[str, Any]]:
+        """Get an outcome by its ID."""
+        result = await self.session.execute(
+            text("SELECT * FROM ramp_outcomes WHERE id = :id"),
+            {"id": outcome_id}
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+    
+    async def get_post_action_metrics(
+        self,
+        asset_id: str,
+        metric_type: str,
+        start_time: datetime,
+        end_time: datetime
+    ) -> List[Dict[str, Any]]:
+        """Get metrics within a time window for verification."""
+        result = await self.session.execute(
+            text("""
+                SELECT * FROM ramp_metrics 
+                WHERE asset_id = :asset_id 
+                AND metric_type = :metric_type
+                AND timestamp >= :start_time
+                AND timestamp <= :end_time
+                ORDER BY timestamp ASC
+            """),
+            {
+                "asset_id": asset_id,
+                "metric_type": metric_type,
+                "start_time": start_time,
+                "end_time": end_time
+            }
+        )
+        return [dict(row) for row in result.mappings()]
+    
+    # =========================================================================
+    # LEARNING
+    # =========================================================================
+    
+    async def get_learning_record(self, asset_id: str, state_type: str) -> Optional[Dict[str, Any]]:
+        """Get learning record for an asset/state_type combination."""
+        result = await self.session.execute(
+            text("SELECT * FROM ramp_learning WHERE asset_id = :asset_id AND state_type = :state_type"),
+            {"asset_id": asset_id, "state_type": state_type}
+        )
+        row = result.mappings().first()
+        return dict(row) if row else None
+    
+    async def upsert_learning_record(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Create or update a learning record."""
+        learning_id = data.get("id") or generate_id()
+        now = now_utc()
+        
+        # Check if record exists
+        existing = await self.get_learning_record(data["asset_id"], data["state_type"])
+        
+        if existing:
+            # Update existing
+            stmt = text("""
+                UPDATE ramp_learning SET
+                    occurrence_count = :occurrence_count,
+                    intervention_count = :intervention_count,
+                    total_savings = :total_savings,
+                    avg_effectiveness = :avg_effectiveness,
+                    last_occurred_at = :last_occurred_at,
+                    updated_at = :updated_at
+                WHERE asset_id = :asset_id AND state_type = :state_type
+                RETURNING *
+            """)
+            result = await self.session.execute(stmt, {
+                "asset_id": data["asset_id"],
+                "state_type": data["state_type"],
+                "occurrence_count": data.get("occurrence_count", existing.get("occurrence_count", 0)),
+                "intervention_count": data.get("intervention_count", existing.get("intervention_count", 0)),
+                "total_savings": data.get("total_savings", existing.get("total_savings", 0.0)),
+                "avg_effectiveness": data.get("avg_effectiveness", existing.get("avg_effectiveness", 0.0)),
+                "last_occurred_at": data.get("last_occurred_at", now),
+                "updated_at": now
+            })
+        else:
+            # Create new
+            stmt = text("""
+                INSERT INTO ramp_learning (id, asset_id, state_type,
+                    occurrence_count, intervention_count, total_savings, avg_effectiveness,
+                    first_occurred_at, last_occurred_at, updated_at)
+                VALUES (:id, :asset_id, :state_type,
+                    :occurrence_count, :intervention_count, :total_savings, :avg_effectiveness,
+                    :first_occurred_at, :last_occurred_at, :updated_at)
+                RETURNING *
+            """)
+            result = await self.session.execute(stmt, {
+                "id": learning_id,
+                "asset_id": data["asset_id"],
+                "state_type": data["state_type"],
+                "occurrence_count": data.get("occurrence_count", 1),
+                "intervention_count": data.get("intervention_count", 0),
+                "total_savings": data.get("total_savings", 0.0),
+                "avg_effectiveness": data.get("avg_effectiveness", 0.0),
+                "first_occurred_at": data.get("first_occurred_at", now),
+                "last_occurred_at": data.get("last_occurred_at", now),
+                "updated_at": now
+            })
+        
+        await self.session.commit()
+        row = result.mappings().first()
+        return dict(row) if row else {"id": learning_id, **data}
+    
     # =========================================================================
     # EVENTS (JSONB field)
     # =========================================================================

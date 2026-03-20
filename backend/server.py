@@ -351,6 +351,357 @@ async def simulate_drift(db: RAMPDatabase = Depends(get_db)):
     }
 
 
+@system_router.post("/demo/complete-verification-flow")
+async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
+    """
+    Demonstrate the complete verification flow end-to-end.
+    
+    This demo:
+    1. Resets data
+    2. Seeds configuration
+    3. Simulates drift (creates baseline → state → priority)
+    4. Creates intervention (freezes baseline)
+    5. Completes intervention (creates pending outcome)
+    6. Generates post-action metrics (simulates improved performance)
+    7. Runs verification scheduler
+    8. Returns verified outcome with savings
+    
+    This demonstrates the full MVP loop with real data.
+    """
+    # 1. Reset
+    from sqlalchemy import text as sql_text
+    tables = [
+        "ramp_learning", "ramp_outcomes", "ramp_interventions",
+        "ramp_priorities", "ramp_states", "ramp_baselines",
+        "ramp_metrics", "ramp_signals", "ramp_rules",
+        "ramp_assets", "ramp_systems", "ramp_sites", "ramp_organisations"
+    ]
+    await db.session.execute(sql_text("DROP TRIGGER IF EXISTS ramp_events_immutable ON ramp_events"))
+    await db.session.execute(sql_text("DELETE FROM ramp_events"))
+    await db.session.execute(sql_text("""
+        CREATE TRIGGER ramp_events_immutable
+        BEFORE UPDATE OR DELETE ON ramp_events
+        FOR EACH ROW
+        EXECUTE FUNCTION ramp_prevent_event_modification()
+    """))
+    for table in tables:
+        await db.session.execute(sql_text(f"DELETE FROM {table}"))
+    await db.session.commit()
+    
+    # 2. Seed
+    await db.create_organisation("Demo Manufacturing Corp", id="demo-org-001")
+    await db.create_site({
+        "id": "demo-site-001",
+        "organisation_id": "demo-org-001",
+        "name": "Riverside Manufacturing",
+        "timezone": "America/Chicago",
+        "currency": "USD",
+        "energy_tariff": 0.11,
+        "hourly_production_value": 600,
+        "operating_hours_per_day": 20,
+        "site_category": "MANUFACTURING"
+    })
+    await db.create_system({
+        "id": "sys-compressed-air",
+        "site_id": "demo-site-001",
+        "name": "Compressed Air System"
+    })
+    await db.create_asset({
+        "id": "asset-comp-001",
+        "system_id": "sys-compressed-air",
+        "name": "Main Compressor A",
+        "asset_class": "COMPRESSOR",
+        "criticality_score": 85,
+        "estimated_repair_cost": 6000
+    })
+    await db.create_rule({
+        "id": "rule-energy-drift",
+        "name": "Energy Drift Detection",
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "metric_type": "energy_intensity",
+        "operator": "gt",
+        "threshold_multiplier": 1.15,
+        "duration_threshold_minutes": 30,
+        "severity_base": 4,
+        "is_active": True
+    })
+    
+    # 3. Create baseline (historical normal)
+    asset_id = "asset-comp-001"
+    baseline_value = 45.0  # Normal energy intensity
+    now = now_utc()
+    
+    baseline = await db.create_baseline({
+        "id": generate_id(),
+        "asset_id": asset_id,
+        "metric_type": "energy_intensity",
+        "context_signature": {"runtime_state": "RUNNING"},
+        "baseline_value": baseline_value,
+        "baseline_min": baseline_value * 0.90,
+        "baseline_max": baseline_value * 1.10,
+        "confidence": 0.85,
+        "confidence_band": "HIGH",
+        "valid_from": now - timedelta(days=14),
+        "sample_count": 336,
+        "data_window_days": 14
+    })
+    
+    # 4. Create state (drift detected - 25% above baseline)
+    drift_deviation = 25.5
+    state = await db.create_state({
+        "id": generate_id(),
+        "asset_id": asset_id,
+        "rule_id": "rule-energy-drift",
+        "baseline_id": baseline["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 5,
+        "severity_band": "MEDIUM",
+        "severity_components": {"base": 4, "duration_modifier": 0, "deviation_modifier": 1},
+        "confidence": 0.82,
+        "confidence_band": "HIGH",
+        "confidence_components": {"data_quality": 0.90, "baseline_confidence": 0.85},
+        "deviation_percent": drift_deviation,
+        "started_at": now - timedelta(hours=2),
+        "duration_minutes": 120
+    })
+    
+    # 5. Create priority
+    priority = await db.create_priority({
+        "id": generate_id(),
+        "state_id": state["id"],
+        "asset_id": asset_id,
+        "priority_score": 62.5,
+        "priority_band": "HIGH",
+        "priority_type": "OPERATIONAL",
+        "drivers": [f"{drift_deviation:.0f}% energy drift", "Critical asset"],
+        "economic_impact": {"value_at_risk_per_day": 25.25},
+        "score_components": {"severity": 50, "economic": 20, "risk": 30}
+    })
+    
+    # 6. Freeze baseline and create intervention
+    frozen_baseline = await db.freeze_baseline(asset_id, generate_id())
+    
+    intervention = await db.create_intervention({
+        "state_id": state["id"],
+        "asset_id": asset_id,
+        "frozen_baseline_id": frozen_baseline["id"] if frozen_baseline else baseline["id"],
+        "intervention_type": "CALIBRATION",  # Use CALIBRATION for shorter window (1h)
+        "description": "Recalibrated compressor pressure settings",
+        "created_by": "demo@example.com"
+    })
+    
+    # 7. Complete intervention (backdated to simulate window elapsed)
+    # Set completed_at to 2 hours ago so verification window has passed
+    completed_at = now - timedelta(hours=2)
+    await db.session.execute(
+        sql_text("UPDATE ramp_interventions SET completed_at = :completed_at WHERE id = :id"),
+        {"completed_at": completed_at, "id": intervention["id"]}
+    )
+    await db.session.commit()
+    
+    # 8. Create pending outcome
+    window_hours = 1.0  # CALIBRATION window
+    outcome = await db.create_outcome({
+        "id": generate_id(),
+        "intervention_id": intervention["id"],
+        "frozen_baseline_id": frozen_baseline["id"] if frozen_baseline else baseline["id"],
+        "verification_window_start": completed_at,
+        "verification_window_end": completed_at + timedelta(hours=window_hours),
+        "frozen_baseline_value": baseline_value,
+        "status": "PENDING"
+    })
+    
+    # 9. Generate post-action metrics (showing improvement)
+    # New value is ~15% lower than baseline (improvement)
+    improved_value = baseline_value * 0.85
+    
+    for i in range(10):
+        # Add some realistic variance
+        metric_value = improved_value + random.uniform(-2, 2)
+        metric_time = completed_at + timedelta(minutes=i * 6)  # Every 6 minutes
+        
+        await db.create_metric({
+            "id": generate_id(),
+            "asset_id": asset_id,
+            "metric_type": "energy_intensity",
+            "value": metric_value,
+            "unit": "kWh",
+            "context_signature": {"runtime_state": "RUNNING"},
+            "timestamp": metric_time
+        })
+    
+    # 10. Run verification scheduler
+    from ramp.services.verification_scheduler import VerificationScheduler
+    scheduler = VerificationScheduler(db)
+    verification_result = await scheduler.process_pending_outcomes()
+    
+    # 11. Get final outcome
+    final_outcome = await db.get_outcome_by_id(outcome["id"])
+    
+    # 12. Get learning record
+    learning = await db.get_learning_record(asset_id, "DRIFT")
+    
+    return {
+        "status": "complete",
+        "flow_summary": {
+            "1_baseline": {"id": baseline["id"], "value": baseline_value},
+            "2_state": {"id": state["id"], "deviation": f"{drift_deviation}%"},
+            "3_priority": {"id": priority["id"], "band": "HIGH"},
+            "4_intervention": {"id": intervention["id"], "type": "CALIBRATION"},
+            "5_outcome": {
+                "id": outcome["id"],
+                "status": final_outcome.get("status") if final_outcome else "UNKNOWN",
+                "savings_value": final_outcome.get("savings_value") if final_outcome else None,
+                "savings_type": final_outcome.get("savings_type") if final_outcome else None,
+                "confidence": final_outcome.get("confidence") if final_outcome else None,
+                "confidence_band": final_outcome.get("confidence_band") if final_outcome else None
+            },
+            "6_learning": learning
+        },
+        "verification_result": verification_result,
+        "message": "Full verification loop completed: baseline → state → priority → intervention → outcome → learning"
+    }
+
+
+@system_router.post("/demo/insufficient-data-scenario")
+async def demo_insufficient_data(db: RAMPDatabase = Depends(get_db)):
+    """
+    Demonstrate the insufficient data scenario.
+    
+    Creates an intervention that completes but has NO post-action metrics,
+    forcing the verification to fail with INSUFFICIENT_DATA after max retries.
+    """
+    from sqlalchemy import text as sql_text
+    
+    # Reset
+    tables = [
+        "ramp_learning", "ramp_outcomes", "ramp_interventions",
+        "ramp_priorities", "ramp_states", "ramp_baselines",
+        "ramp_metrics", "ramp_signals", "ramp_rules",
+        "ramp_assets", "ramp_systems", "ramp_sites", "ramp_organisations"
+    ]
+    await db.session.execute(sql_text("DROP TRIGGER IF EXISTS ramp_events_immutable ON ramp_events"))
+    await db.session.execute(sql_text("DELETE FROM ramp_events"))
+    await db.session.execute(sql_text("""
+        CREATE TRIGGER ramp_events_immutable
+        BEFORE UPDATE OR DELETE ON ramp_events
+        FOR EACH ROW
+        EXECUTE FUNCTION ramp_prevent_event_modification()
+    """))
+    for table in tables:
+        await db.session.execute(sql_text(f"DELETE FROM {table}"))
+    await db.session.commit()
+    
+    # Minimal seed
+    await db.create_organisation("Demo Corp", id="demo-org-001")
+    await db.create_site({
+        "id": "demo-site-001",
+        "organisation_id": "demo-org-001",
+        "name": "Test Site",
+        "timezone": "UTC",
+        "energy_tariff": 0.10
+    })
+    await db.create_system({
+        "id": "sys-001",
+        "site_id": "demo-site-001",
+        "name": "Test System"
+    })
+    await db.create_asset({
+        "id": "asset-001",
+        "system_id": "sys-001",
+        "name": "Test Asset"
+    })
+    
+    # Create baseline
+    asset_id = "asset-001"
+    baseline_value = 50.0
+    now = now_utc()
+    
+    baseline = await db.create_baseline({
+        "asset_id": asset_id,
+        "metric_type": "energy_intensity",
+        "context_signature": {},
+        "baseline_value": baseline_value,
+        "baseline_min": 45.0,
+        "baseline_max": 55.0,
+        "confidence": 0.8,
+        "confidence_band": "HIGH"
+    })
+    
+    # Create state
+    state = await db.create_state({
+        "asset_id": asset_id,
+        "baseline_id": baseline["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 4,
+        "severity_band": "MEDIUM",
+        "confidence": 0.75,
+        "confidence_band": "MEDIUM"
+    })
+    
+    # Freeze baseline
+    await db.freeze_baseline(asset_id, generate_id())
+    
+    # Create intervention
+    intervention = await db.create_intervention({
+        "state_id": state["id"],
+        "asset_id": asset_id,
+        "frozen_baseline_id": baseline["id"],
+        "intervention_type": "CALIBRATION",  # 1-hour window, 4 samples min
+        "description": "Test intervention",
+        "created_by": "test@test.com"
+    })
+    
+    # Complete intervention (backdated)
+    completed_at = now - timedelta(hours=3)  # Well past the 1-hour window
+    await db.session.execute(
+        sql_text("UPDATE ramp_interventions SET completed_at = :completed_at WHERE id = :id"),
+        {"completed_at": completed_at, "id": intervention["id"]}
+    )
+    await db.session.commit()
+    
+    # Create pending outcome with max retries already hit
+    # This simulates the scheduler having already tried multiple times
+    outcome = await db.create_outcome({
+        "intervention_id": intervention["id"],
+        "frozen_baseline_id": baseline["id"],
+        "verification_window_start": completed_at,
+        "verification_window_end": completed_at + timedelta(hours=1),
+        "frozen_baseline_value": baseline_value,
+        "status": "PENDING"
+    })
+    
+    # Set retry count to max-1 so next run will mark as insufficient
+    await db.session.execute(
+        sql_text("UPDATE ramp_outcomes SET retry_count = 5 WHERE id = :id"),
+        {"id": outcome["id"]}
+    )
+    await db.session.commit()
+    
+    # Run verification (NO metrics exist - should fail)
+    from ramp.services.verification_scheduler import VerificationScheduler
+    scheduler = VerificationScheduler(db)
+    result = await scheduler.process_pending_outcomes()
+    
+    # Get final outcome
+    final_outcome = await db.get_outcome_by_id(outcome["id"])
+    
+    return {
+        "status": "demonstrated",
+        "scenario": "insufficient_data",
+        "outcome": {
+            "id": outcome["id"],
+            "status": final_outcome.get("status") if final_outcome else "UNKNOWN",
+            "verification_notes": final_outcome.get("verification_notes") if final_outcome else None
+        },
+        "verification_result": result,
+        "message": "This demonstrates proper handling when no post-action data exists"
+    }
+
+
 # =============================================================================
 # HOW LENS ROUTES
 # =============================================================================
@@ -717,6 +1068,144 @@ async def verify_relational_chain(db: RAMPDatabase = Depends(get_db)):
         results["summary"] = "No complete chain found - data may need to be seeded"
     
     return results
+
+
+# =============================================================================
+# VERIFICATION SCHEDULER ROUTES
+# =============================================================================
+
+@system_router.post("/verification/run")
+async def run_verification_scheduler(db: RAMPDatabase = Depends(get_db)):
+    """
+    Run the verification scheduler to process pending outcomes.
+    
+    This endpoint:
+    1. Checks all PENDING outcomes
+    2. Verifies those where the window has elapsed and data is sufficient
+    3. Marks INSUFFICIENT_DATA for those that exceed retry limits
+    4. Updates learning records for verified outcomes
+    
+    In production, this would be called by a cron job or scheduled task.
+    """
+    from ramp.services.verification_scheduler import VerificationScheduler
+    
+    scheduler = VerificationScheduler(db)
+    results = await scheduler.process_pending_outcomes()
+    
+    return {
+        "status": "completed",
+        "summary": {
+            "processed": results["processed"],
+            "verified": results["verified"],
+            "insufficient_data": results["insufficient_data"],
+            "still_pending": results["still_pending"],
+            "errors": results["errors"]
+        },
+        "details": results["details"]
+    }
+
+
+@system_router.get("/verification/pending")
+async def get_pending_verifications(db: RAMPDatabase = Depends(get_db)):
+    """
+    Get all pending verification outcomes.
+    
+    Returns outcomes that are waiting for verification with their
+    current status, retry count, and time since intervention.
+    """
+    pending = await db.get_pending_outcomes()
+    
+    now = datetime.now(timezone.utc)
+    enriched = []
+    
+    for outcome in pending:
+        completed_at = outcome.get("intervention_completed_at")
+        if isinstance(completed_at, str):
+            completed_at = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+        
+        hours_since_completion = (now - completed_at).total_seconds() / 3600 if completed_at else 0
+        
+        enriched.append({
+            "outcome_id": outcome["id"],
+            "intervention_id": outcome["intervention_id"],
+            "state_family": outcome.get("state_family"),
+            "state_type": outcome.get("state_type"),
+            "intervention_type": outcome.get("intervention_type"),
+            "status": outcome.get("status"),
+            "retry_count": outcome.get("retry_count", 0),
+            "hours_since_completion": round(hours_since_completion, 2),
+            "frozen_baseline_value": outcome.get("frozen_baseline_value"),
+            "verification_notes": outcome.get("verification_notes")
+        })
+    
+    return {
+        "pending_count": len(enriched),
+        "outcomes": enriched
+    }
+
+
+@system_router.get("/verification/config")
+async def get_verification_configs():
+    """
+    Get all verification configuration settings.
+    
+    Shows the window hours, min samples, and retry settings
+    for each state family and intervention type.
+    """
+    from ramp.services.verification_config import (
+        DEFAULT_CONFIGS, 
+        INTERVENTION_TYPE_CONFIGS
+    )
+    
+    return {
+        "by_state_family": {
+            k: {
+                "window_hours": v.window_hours,
+                "min_samples": v.min_samples,
+                "min_window_coverage": v.min_window_coverage,
+                "max_retry_attempts": v.max_retry_attempts,
+                "retry_interval_hours": v.retry_interval_hours
+            }
+            for k, v in DEFAULT_CONFIGS.items()
+        },
+        "by_intervention_type": {
+            k: {
+                "window_hours": v.window_hours,
+                "min_samples": v.min_samples,
+                "min_window_coverage": v.min_window_coverage,
+                "max_retry_attempts": v.max_retry_attempts,
+                "retry_interval_hours": v.retry_interval_hours
+            }
+            for k, v in INTERVENTION_TYPE_CONFIGS.items()
+        },
+        "note": "Intervention type config takes precedence over state family config"
+    }
+
+
+@system_router.get("/learning/{asset_id}")
+async def get_learning_for_asset(asset_id: str, db: RAMPDatabase = Depends(get_db)):
+    """
+    Get learning records for an asset.
+    
+    Shows recurrence counts, intervention effectiveness, and savings totals.
+    """
+    from sqlalchemy import text as sql_text
+    
+    result = await db.session.execute(
+        sql_text("SELECT * FROM ramp_learning WHERE asset_id = :asset_id ORDER BY updated_at DESC"),
+        {"asset_id": asset_id}
+    )
+    records = [dict(row) for row in result.mappings()]
+    
+    return {
+        "asset_id": asset_id,
+        "learning_records": records,
+        "summary": {
+            "total_state_types": len(records),
+            "total_interventions": sum(r.get("intervention_count", 0) for r in records),
+            "total_savings": sum(r.get("total_savings", 0) for r in records)
+        }
+    }
 
 
 # Root endpoint for API
