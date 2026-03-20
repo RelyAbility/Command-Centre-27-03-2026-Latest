@@ -1,156 +1,156 @@
 <analysis>**original_problem_statement:**
-The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. The project is highly structured, starting with a deep understanding of the system's core principles and Engine Logic before any implementation. The core loop is . After aligning on the system's theoretical design (State, Baseline, Priority, Severity, Confidence, Economic Impact), the project moved to an MVP build phase. The MVP's primary goal is to implement a working System Behaviour Monitoring (SBM) loop: .
-
-A critical architectural requirement was to use Supabase/PostgreSQL for the persistence and auth layer. However, the initial implementation was done using MongoDB. The user has explicitly requested to correct this deviation by migrating the entire backend to Supabase/PostgreSQL before completing the MVP's verification and learning features.
+The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. The project's core is the SBM loop: . The initial MVP was built on MongoDB, but the user mandated a migration to Supabase/PostgreSQL. After completing the migration, the goal was to build out the full verification and learning loop. The project has since evolved to include a Proof of Value frontend view and a First 5 Minutes guided demo experience. The current focus is on ensuring the implementation is in strict alignment with a set of canonical engineering and data schema documents provided by the user before any further feature expansion.
 
 **PRODUCT REQUIREMENTS:**
-- Implement the core RAMP services: Ingestion, Baseline, State, Priority, Intervention, Verification, and Learning.
-- Use Supabase/PostgreSQL for the database.
+- The application must align with the canonical  and  documents provided by the user.
+- Implement the core RAMP services: Ingestion, Baseline, State, Priority, Intervention, Verification, and Learning on PostgreSQL.
 - Enforce strict API and payload separation between the  (operator) and  (portfolio) lenses.
-- Ensure the entire system is event-driven, with an immutable event log for auditability.
-- The MVP is complete only when the full verification loop, including post-action data accumulation and savings calculation, is functional.
+- The entire system must be event-driven with an immutable event log.
+- Before expanding with new features (like real-time updates or multi-site support), the existing implementation must be architecturally sound and aligned with the provided specifications.
 
 **User's preferred language**: English
 
 **what currently exists?**
-The project has a FastAPI backend and a React frontend. The backend was initially built on MongoDB but is currently in the process of being migrated to Supabase/PostgreSQL. The migration is partially complete:
-- The database schema has been defined using SQLAlchemy and applied to the Supabase instance via Alembic migrations.
-- The backend has been partially refactored with a new database client () and lens-aware response builders ().
-- The  and  files have been updated for the PostgreSQL connection.
+A full-stack application with a FastAPI backend and a React frontend. The backend migration from MongoDB to Supabase/PostgreSQL is complete. The core MVP loop ( →  →  →  →  → ) is fully functional and has been tested. The backend includes a verification scheduler, configurable verification windows, and handles different outcome statuses (, , ). The frontend features a Proof of Value dashboard that summarizes key business metrics and a First 5 Minutes guided tour to onboard new users or for demo purposes. The API now complies with the user's Lens Contract by suppressing raw scores and using descriptive labels for operator-facing data. The user has just provided new canonical reference files for the data layer.
 
 **Last working item**:
--   **Last item agent was working:** The agent was attempting to seed the new PostgreSQL database with demo data to test the migrated backend. The process failed during data insertion.
--   **Status:** BLOCKED
--   **Agent Testing Done:** N
--   **Which testing method agent to use?** backend testing agent
+-   **Last item agent was working:** The agent was reviewing new canonical reference documents provided by the user, specifically  and , to understand the authoritative data model.
+-   **Status:** IN PROGRESS
+-   **Agent Testing Done:** N/A
+-   **Which testing method agent to use?** backend testing agent (after proposing changes based on the gap analysis)
 -   **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
--   **Issue 1:** (P0 - BLOCKER)  on data ingestion.
+This is a list of alignment tasks, not traditional bugs.
+-   **Issue 1:** (P0) Data Layer Misalignment. The current Alembic-generated schema may differ from the canonical  provided by the user.
 
-    -   **Attempted fixes:** The agent tried to modify the raw SQL in  to correctly handle JSONB casting, but the issue persists. The root cause is an incompatibility between the named parameter style () in the  constructs and the positional parameter style () expected by the  driver, especially for complex data types like JSON.
+    -   **Attempted fixes:** None yet. The agent just finished reviewing the files.
     -   **Next debug checklist:**
-        1.  Refactor the database insertion logic in .
-        2.  Replace raw SQL  statements using  with SQLAlchemy Core's  constructs. This allows SQLAlchemy's compiler to handle dialect-specific parameter styles and data type serialization correctly.
-        3.  For example, in , replace the  call with  and then .
-        4.  Apply this pattern to all data creation functions (, , , etc.).
-    -   **Why fix this issue and what will be achieved with the fix?** The application cannot ingest or store any data, which blocks all further development and testing of the migration. Fixing this will unblock the entire MVP build plan.
-    -   **Status:** IN PROGRESS
-    -   **Is recurring issue?** Y
+        1.  Perform a detailed comparison between the current database schema (defined in  and Alembic versions) and the schema defined in .
+        2.  Identify all discrepancies in table names, column names, data types, constraints, and relationships.
+        3.  Propose a plan to migrate the current schema to the canonical schema using a new Alembic migration script.
+    -   **Why fix this issue and what will be achieved with the fix?** To ensure the application's data layer is fully aligned with the user's authoritative system design, preventing future inconsistencies and simplifying integration with other potential systems.
+    -   **Status:** NOT STARTED
+    -   **Is recurring issue?** N
     -   **Should Test frontend/backend/both after fix?** backend
     -   **Blocked on other issue:** None
 
 **In progress Task List**:
--   **Task 1:** (P0) Complete the migration from MongoDB to Supabase/PostgreSQL.
-    -   **Where to resume:** Resume by fixing the data insertion bug in  as described in Issue 1. Once fixed, proceed with the user-approved migration plan.
-    -   **What will be achieved with this?** The application's persistence layer will align with the approved system architecture, enabling reliable data relationships and auditability.
+-   **Task 1:** (P0) Engineering and Data Schema Alignment.
+    -   **Where to resume:** Create a comprehensive gap assessment based on the review of all canonical documents (Engineering Blueprint, Developer Spec, and especially the newly provided  files). Present this assessment to the user, outlining what aligns, what differs, and a plan for correction.
+    -   **What will be achieved with this?** A clear, user-approved plan to bring the entire application into full compliance with the canonical system design.
     -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** backend
-    -   **Blocked on something:** Blocked on Issue 1.
+    -   **Should Test frontend/backend/both after fix?** both
+    -   **Blocked on something:** User approval of the gap assessment.
 
 **Upcoming and Future Tasks**
 - **Upcoming Tasks:**
-    - **P0: Checkpoint Validation:** After fixing the data seeding, execute the relational chain checkpoint test. This involves running SQL queries with s to prove that the  →  →  →  chain is referentially intact.
-    - **P1: Complete Verification & Learning Loop:**
-        - Implement a scheduler for the verification process (to run after a configured time window post-intervention).
-        - Implement the logic to accumulate post-action metric data.
-        - Add support for pending or insufficient_data statuses for outcomes.
-        - Connect the verified outcomes to the Learning Engine to enable future baseline refinement.
+    - **P1: State Transition Tracking:** As per the gap analysis in , implement state transition logic. This involves adding fields like  to the  table and ensuring the event log captures these transitions correctly.
+    - **P2: Escalation Logic:** Implement duration-based automatic escalation for priorities that remain unaddressed for too long, as identified in the alignment document.
+
 - **Future Tasks:**
-    - Implement a Verified Outcomes View for the frontend.
-    - Implement advanced learning features like cross-asset benchmarking.
-    - Introduce asset-class-specific modifiers for thresholds (V1.1).
-    - Add support for more complex site configurations (e.g., demand-based energy tariffs).
+    - Real-time updates via WebSockets for the frontend.
+    - Admin UI for rule configuration.
+    - Multi-site support and asset relationships.
+    - Learning-driven baseline optimization.
+    - Outcome export (CSV/PDF).
+    - Authentication.
 
 **Completed work in this session**
-- **System Definition & Engine Logic:** Completed a thorough analysis of all system documents to define and lock the core logic for State, Baseline, Priority, Severity, Confidence, and Economic Impact.
-- **MVP Build Plan:** Created a detailed, phased plan for building the MVP, which was approved by the user.
-- **Initial Backend (MongoDB):** Implemented the core services, API endpoints, and a functional end-to-end loop using MongoDB, which passed initial backend tests.
-- **PostgreSQL Migration (In Progress):**
-    - Set up the Supabase connection and configured Alembic for database migrations.
-    - Created the initial PostgreSQL schema and applied it.
-    - Defined SQLAlchemy models in .
-    - Created  and  lens builders to enforce payload separation.
-    - Partially refactored the backend services and main application file to use the new PostgreSQL database.
+- **PostgreSQL Migration Blocker Fixed:** Resolved the critical  for JSONB data insertion by refactoring all database insertion logic in  to use SQLAlchemy Core's expression language (, ) instead of raw SQL with .
+- **Core MVP Loop Completed:** Implemented the full verification and learning loop, including a verification scheduler, configurable time windows, and robust handling of , , and  outcomes.
+- **Relational Integrity Verified:** Created a  endpoint to prove the full  chain is referentially intact using SQL JOINs.
+- **Proof of Value Frontend View:** Built a focused frontend dashboard that summarizes value at risk, top actions, and verified savings.
+- **First 5 Minutes Guided Experience:** Developed a comprehensive onboarding/demo flow with a dedicated backend endpoint () and an interactive frontend tour.
+- **Lens Contract Compliance:** Refactored all  lens-related API endpoints and frontend components to suppress raw scores (priority, confidence) and consistently use descriptive labels (strong, moderate, etc.), as mandated by the user's canonical documents.
 
 **Earlier issues found/mentioned but not fixed**
--   None. The current focus is on the critical migration blocker.
+- None. The agent has addressed all identified issues and alignment gaps as they were prioritized by the user.
 
 **Known issue recurrence from previous fork**
--   None.
+- None.
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
--   **Backend:** FastAPI
--   **Database:** Supabase/PostgreSQL
--   **DB Migration:** Alembic
--   **ORM:** SQLAlchemy
--   **Architecture:** Event-Driven, Service-Oriented
--   **Core Principle:** Strict separation of concerns between  (operational) and  (portfolio) lenses, enforced at the API payload level.
+- **Backend:** FastAPI, SQLAlchemy Core
+- **Database:** Supabase/PostgreSQL
+- **DB Migration:** Alembic
+- **Frontend:** React
+- **Architecture:** Event-Driven, Service-Oriented, strict HOW/WHERE Lens separation.
 
 **key DB schema**
-The schema is defined with a  prefix for all tables. Key tables include , , , , , , , and . Critical foreign key relationships enforce the chain:  →  →  → .
+- The schema is defined in  and managed via Alembic.
+- A  column was added to the  table.
+- **CRITICAL:** The user has provided canonical  schema files. The next agent's primary task is to assess and align the current schema with these reference files. Key tables: , , , , , , , .
 
 **changes in tech stack**
--   **Database:** A major, in-progress migration from MongoDB to Supabase/PostgreSQL.
+- None in this session. The major change (MongoDB to PostgreSQL) was initiated in the previous session and completed in this one.
 
 **All files of reference**
--   : The database client containing all SQL queries. **This is the location of the current blocker issue.**
--   : The initial database schema migration file.
--   : SQLAlchemy table definitions.
--   : The main application entry point that wires all services together.
--   : Contains the .
--   : Contains the  and  modules for enforcing lens-specific API responses.
+- **User Provided Canonical Docs:** , , , . These are the source of truth for all future work.
+- : Main FastAPI application. Heavily modified with new endpoints for demos, verification, and value summary.
+- : Core database logic. Refactored to fix JSONB issues and add new query methods.
+- : The entire frontend UI. Completely rewritten to build the Proof of Value and First 5 Minutes experiences.
+- : HOW lens builder. Refactored for Lens Contract compliance.
+- : New module for shared logic like confidence-to-label mapping.
+- : New service to handle the verification loop.
+- : A summary of the gap analysis between the implementation and the user's engineering documents.
+- : Product Requirements Document, updated throughout the session.
 
 **Areas that need refactoring**:
--   : The entire file requires refactoring to use SQLAlchemy's Core expression language (, , etc.) instead of raw -based queries to resolve the parameter binding errors with .
+- The entire data layer (SQLAlchemy models in , Alembic migrations) needs to be audited and potentially refactored to align with the user's canonical  schema files.
 
 **key api endpoints**
--   : Provides the action queue for operators.
--   : Provides an aggregated portfolio view.
--   : A temporary endpoint for testing an active drift state.
--    & : Endpoints for seeding configuration and ingesting test data. The  endpoint is currently failing.
+- : Aggregates all data for the Proof of Value view.
+- : Seeds the database and provides a rich narrative for the guided demo experience.
+- : Triggers the verification process for pending outcomes.
+- : Returns the operator's action list, now fully Lens Contract compliant.
 
 **Critical Info for New Agent**
--   The user is highly technical and has mandated a specific architecture. Adherence to the plan is paramount.
--   The project's most critical task is to **complete the migration to Supabase/PostgreSQL**. Do not proceed with feature work until the migration is finished and validated.
--   The migration is **blocked** by a data insertion bug in . This is your first priority.
--   After fixing the bug, the next checkpoint is to prove the full relational chain ( →  →  → ) works with SQL JOINs, as per the user's instructions.
--   Lens separation (HOW vs. WHERE) must be strictly enforced in the API response payloads using the existing lens builder modules.
+- **Adhere to Canonical Docs:** The user, Brad, is highly technical and has provided authoritative reference documents for engineering, data schema, and system logic. All new work **must** align with these documents. Do not proceed with any feature work until the existing implementation is in alignment.
+- **Prioritize Alignment over Features:** The immediate priority is to perform a gap analysis of the data layer against the new  files and then implement the necessary corrections. After that, address the other alignment items: state transitions and escalation logic.
+- **Lens Contract is Mandatory:** The separation between  (operator view) and  (portfolio view) is critical. The  lens must never expose raw scores or internal calculations, only descriptive bands and labels. The helpers in  should be used for this.
 
 **documents and test reports created in this job**
--   
--    (Note: This report is for the old MongoDB implementation and is no longer relevant).
+- 
+- 
+- 
+- 
+- 
+- 
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User (Brad):** Approved the migration plan with corrections: enforce lens separation via payload builders, use dependency order for migration, and set a relational chain checkpoint test.
-2.  **Agent:** Provided a revised plan incorporating the user's feedback.
-3.  **User (Brad):** Approved the revised plan.
-4.  **Agent:** Started the migration and requested the Supabase connection string.
-5.  **User (Brad):** Asked for clarification.
-6.  **Agent:** Explained the need for the Transaction Pooler URI.
-7.  **User (Brad):** Provided an incorrect key (anon JWT).
-8.  **Agent:** Corrected the user and provided specific instructions.
-9.  **User (Brad):** Provided an incorrect URI (Direct Connection).
-10. **User (Brad):** After several exchanges, provided the correct Transaction Pooler URI with the correct port but an incorrect host. Eventually, the correct details were pieced together.
+1. **User**: Approved the First 5 Minutes experience.
+2. **User**: Provided canonical engineering and data schema documents, instructing the agent to align the build with them.
+3. **Agent**: Acknowledged and began reviewing the documents.
+4. **Agent**: Extracted content from multiple reference documents (, , , etc.).
+5. **Agent**: Created  and presented a summary/gap analysis to the user.
+6. **User**: Confirmed the agent should now prioritize fixing the Lens Contract violations identified in the gap analysis.
+7. **Agent**: Fixed the Lens Contract violations by creating a central confidence mapping and refactoring the API and frontend.
+8. **Agent**: Confirmed the fix with tests and updated the user.
+9. **User**: Provided *more* files, this time focusing specifically on the canonical data layer ( schema and seed files).
+10. **Agent**: Acknowledged and began reviewing the new data layer files.
 
 **Project Health Check:**
--   **Broken:** The data ingestion pipeline is non-functional due to a SQL programming error in the new PostgreSQL backend.
+- **Healthy:** The application is fully functional. The initial critical blocker (DB migration) is resolved. There are no broken components. The current work stream is focused on deep architectural alignment rather than fixing bugs.
 
 **3rd Party Integrations**
--   **Supabase/PostgreSQL:** In the process of being integrated as the primary database.
+- **Supabase/PostgreSQL:** The primary database for the application.
 
 **Testing status**
--   **Testing agent used after significant changes:** NO (Not yet on the PostgreSQL version).
--   **Troubleshoot agent used after agent stuck in loop:** NO
--   **Test files created:** None for the PostgreSQL version.
--   **Known regressions:** The entire data ingestion functionality, which worked on MongoDB, is currently broken in the PostgreSQL version.
+- **Testing agent used after significant changes:** YES. The testing agent was used 4 times to validate the verification loop, proof-of-value UI, guided demo, and lens contract compliance.
+- **Troubleshoot agent used after agent stuck in loop:** NO
+- **Test files created:**
+  - 
+  - 
+  - 
+  - 
+- **Known regressions:** None.
 
 **Credentials to test flow:**
-The Supabase database connection string is stored in the  variable in .
+- The Supabase database connection string is available as the  environment variable in .
 
 **What agent forgot to execute**
-- The agent did not initially follow the  instructions closely for the database setup, leading to multiple back-and-forths with the user to get the correct connection string and resolve configuration errors (like escaping '%' in the password). This delayed the start of the migration.
-- The agent initially built the MVP on MongoDB, deviating from the user's specified architecture (Supabase/PostgreSQL), which necessitated this large-scale migration effort.</analysis>
+- The agent initially built API endpoints (, ) that did not adhere to the Lens Contract (exposing raw confidence scores). This was a gap, not a forgotten step, as the contract was only fully clarified later. The agent successfully corrected this as its last major task once the requirement was made explicit.</analysis>
