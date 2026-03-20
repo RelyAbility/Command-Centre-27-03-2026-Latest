@@ -45,9 +45,51 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | Learning engine connection | ✅ Implemented |
 | PostgreSQL Migration | ✅ Completed |
 | Proof of Value View | ✅ Completed |
-| **First 5 Minutes Experience** | ✅ Completed (2026-03-20) |
+| First 5 Minutes Experience | ✅ Completed (2026-03-20) |
+| **State Transition Tracking** | ✅ Completed (2026-03-20) |
+| **Duration-based Escalation** | ✅ Completed (2026-03-20) |
 
 ## What's Been Implemented
+
+### Date: 2026-03-20 - State Transition & Escalation Logic (Latest)
+
+**P1: State Transition Tracking**
+- States now properly transition (SUPERSEDED, ESCALATED) rather than just ending
+- `transitioned_to_state_id` field tracks state chains
+- Full transition history viewable via API
+- `state_transitioned` events for audit trail
+
+**API Endpoints:**
+```
+POST /api/system/states/transition - Transition from one state to another
+GET /api/system/states/{state_id}/chain - Get full transition history
+POST /api/system/states/{state_id}/end - End state with resolution type
+```
+
+**P2: Duration-based Escalation Logic**
+- Automatic escalation based on state duration
+- Configurable thresholds per state type:
+  - DRIFT: 10min→MEDIUM, 8hr→HIGH, 2days→CRITICAL
+  - DEGRADATION: 30min→MEDIUM, 4hr→HIGH, 1day→CRITICAL
+  - SPIKE: 5min→HIGH, 1hr→CRITICAL
+- Manual escalation for operator override
+- `priority_escalated` events for audit trail
+
+**API Endpoints:**
+```
+POST /api/system/escalation/run - Auto-escalate all eligible priorities
+GET /api/system/escalation/candidates - Preview what would be escalated
+POST /api/system/escalation/manual - Manual escalation by operator
+```
+
+**Files Added/Modified:**
+- `/app/backend/ramp/services/escalation.py` (NEW)
+- `/app/backend/ramp/db.py` (transition_state, get_state_transition_chain methods)
+- `/app/backend/server.py` (6 new endpoints)
+
+**Testing:** 15/16 backend tests passed (1 skipped)
+
+---
 
 ### Date: 2026-03-20 - First 5 Minutes Experience Complete
 
@@ -143,7 +185,9 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ### P0 (MVP) ✅ COMPLETE
 
-### P1 (Productization)
+### P1 (Productization) - Partially Complete
+- ✅ **State Transition Tracking** — States transition properly with audit trail
+- ✅ **Duration-based Escalation** — Auto-escalate based on configurable thresholds
 - Real-time updates (WebSocket for priority queue, state changes)
 - Rule configuration admin UI
 - Multiple sites support
@@ -175,10 +219,11 @@ The core RAMP MVP is now **COMPLETE** with:
 ## Key Files
 
 ### Backend
-- `/app/backend/server.py` — Main API with all endpoints including first-five-minutes
-- `/app/backend/ramp/db.py` — Database operations
+- `/app/backend/server.py` — Main API with all endpoints including escalation and state transitions
+- `/app/backend/ramp/db.py` — Database operations including transition_state()
 - `/app/backend/ramp/services/verification_scheduler.py` — Verification logic
 - `/app/backend/ramp/services/verification_config.py` — Configurable windows
+- `/app/backend/ramp/services/escalation.py` — Escalation service (NEW)
 
 ### Frontend
 - `/app/frontend/src/App.js` — First Five Minutes experience with guided tour
@@ -191,3 +236,4 @@ The core RAMP MVP is now **COMPLETE** with:
 - `/app/test_reports/iteration_2.json` — Verification system tests (25/25 passed)
 - `/app/test_reports/iteration_3.json` — Proof of Value tests (13/13 passed)
 - `/app/test_reports/iteration_4.json` — First Five Minutes tests (11/11 backend + all UI passed)
+- `/app/test_reports/iteration_6.json` — State Transition & Escalation tests (15/16 passed)

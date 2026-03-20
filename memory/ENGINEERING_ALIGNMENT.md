@@ -76,27 +76,28 @@ The current MVP implementation is **well-aligned** with the core system design p
 
 ---
 
-#### 2. State Transitions (Priority: MEDIUM)
+#### 2. ~~State Transitions (Priority: MEDIUM)~~ ✅ FIXED (2026-03-20)
 
 **Reference (State Engine §8):**
 > States must transition — not just stop/start.
 > `current_state → next_state`
 > Transition rules must be explicit.
 
-**Current State:**
-- States have `ended_at` and `resolution_type`
-- No `transitioned_to_state_id` or transition log
+**Fixed:** State transition tracking fully implemented:
+- `transitioned_to_state_id` field in `ramp_states` now properly used
+- `transition_state()` method in `db.py` handles atomic state transitions
+- `state_transitioned` event type created for audit trail
+- Resolution types: `RESOLVED`, `INTERVENTION`, `SUPERSEDED`, `ESCALATED`
 
-**Required Fix:**
-- Add `transitioned_to_state_id` field to `ramp_states`
-- Add `state.transitioned` event type
-- Track state lifecycle: ACTIVE → RESOLVED | ESCALATED | SUPERSEDED
-
-**Action:** Add migration and implement transition tracking.
+**Implementation:**
+- `POST /api/system/states/transition` - Transition from one state to another
+- `GET /api/system/states/{state_id}/chain` - Get full transition history
+- `POST /api/system/states/{state_id}/end` - End state with resolution type
+- Events created in `ramp_events` table for all transitions
 
 ---
 
-#### 3. Escalation Logic (Priority: MEDIUM)
+#### 3. ~~Escalation Logic (Priority: MEDIUM)~~ ✅ FIXED (2026-03-20)
 
 **Reference (Priority Engine §8.2, §9.1):**
 > Duration Increases Priority:
@@ -106,19 +107,25 @@ The current MVP implementation is **well-aligned** with the core system design p
 > 
 > Escalation Modifier: Increase score if repeat occurrence, no action taken, state worsened.
 
-**Current State:**
-- `escalation_status` field exists but not populated
-- No automatic escalation based on duration
+**Fixed:** Duration-based escalation logic implemented:
+- `EscalationService` in `/app/backend/ramp/services/escalation.py`
+- Configurable thresholds per state type (DRIFT, DEGRADATION, SPIKE)
+- Automatic escalation via `/api/system/escalation/run`
+- Manual escalation via `/api/system/escalation/manual`
+- `priority_escalated` events for audit trail
 
-**Required Fix:**
-- Implement escalation thresholds in Priority Engine
-- Auto-escalate based on duration and inaction
-
-**Action:** Add escalation logic to priority calculation.
+**Implementation:**
+```python
+DURATION_ESCALATION_THRESHOLDS = {
+    "DRIFT": [(10, "MEDIUM"), (480, "HIGH"), (2880, "CRITICAL")],
+    "DEGRADATION": [(30, "MEDIUM"), (240, "HIGH"), (1440, "CRITICAL")],
+    "SPIKE": [(5, "HIGH"), (60, "CRITICAL")],
+}
+```
 
 ---
 
-#### 4. Confidence Labels (Priority: MEDIUM)
+#### 4. ~~Confidence Labels (Priority: MEDIUM)~~ ✅ FIXED (2026-03-20)
 
 **Reference (Lens Contract §4.6):**
 > `confidence_label` e.g. strong / moderate / low — HOW can see this
