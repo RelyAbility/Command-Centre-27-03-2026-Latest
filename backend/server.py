@@ -1179,8 +1179,17 @@ async def demo_insufficient_data(db: RAMPDatabase = Depends(get_db)):
 
 
 # =============================================================================
-# HOW LENS ROUTES (Operator Access Required)
+# HOW LENS ROUTES (Operator Access Required + Site Scope)
 # =============================================================================
+
+from ramp.auth.scope import (
+    build_asset_lookup_with_sites,
+    filter_priorities_by_scope,
+    filter_states_by_scope,
+    check_asset_in_scope,
+    check_site_in_scope
+)
+
 
 @how_router.get("/priorities")
 async def get_priorities_how(
@@ -1192,13 +1201,20 @@ async def get_priorities_how(
     Uses HOWLens to enforce payload discipline.
     
     Auth: HOW lens access required (operator or admin)
+    Scope: Filtered by user's assigned site_ids
     """
     priorities = await db.get_active_priorities()
     
-    # Build asset and state lookups
+    # Build asset lookup with site_ids for scope filtering
+    asset_lookup = await build_asset_lookup_with_sites(db)
+    
+    # Filter priorities by user's site scope
+    scoped_priorities = filter_priorities_by_scope(priorities, user, asset_lookup)
+    
+    # Build asset and state lookups for response
     assets = {}
     states = {}
-    for p in priorities:
+    for p in scoped_priorities:
         asset_id = p.get("asset_id")
         state_id = p.get("state_id")
         
@@ -1208,14 +1224,13 @@ async def get_priorities_how(
                 assets[asset_id] = asset
         
         if state_id and state_id not in states:
-            # Get active states for this asset and find the matching one
             active_states = await db.get_active_states(asset_id)
             state = next((s for s in active_states if s["id"] == state_id), None)
             if state:
                 states[state_id] = state
     
     # Use HOWLens to build response with state confidence
-    return HOWLens.priority_list_response(priorities, assets, states)
+    return HOWLens.priority_list_response(scoped_priorities, assets, states)
 
 
 @how_router.get("/assets/{asset_id}/state")
@@ -1229,7 +1244,15 @@ async def get_asset_state_how(
     Uses HOWLens to enforce payload discipline.
     
     Auth: HOW lens access required (operator or admin)
+    Scope: Asset must be in user's site scope
     """
+    # Build asset lookup for scope check
+    asset_lookup = await build_asset_lookup_with_sites(db)
+    
+    # Check asset is in user's scope
+    if not check_asset_in_scope(asset_id, user, asset_lookup):
+        raise HTTPException(status_code=403, detail="Asset not in your site scope")
+    
     asset = await db.get_asset(asset_id)
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
@@ -1252,6 +1275,7 @@ async def create_intervention_how(
     Triggers baseline freeze for verification.
     
     Auth: HOW lens access required (operator or admin)
+    Scope: Asset must be in user's site scope
     """
     # Get state to get asset_id
     active_states = await db.get_active_states()
@@ -1261,6 +1285,12 @@ async def create_intervention_how(
         raise HTTPException(status_code=400, detail="State not found or not active")
     
     asset_id = state["asset_id"]
+    
+    # Check asset is in user's scope
+    asset_lookup = await build_asset_lookup_with_sites(db)
+    if not check_asset_in_scope(asset_id, user, asset_lookup):
+        raise HTTPException(status_code=403, detail="Asset not in your site scope")
+    
     correlation_id = generate_id()
     
     # Freeze baseline
@@ -1384,7 +1414,7 @@ async def get_intervention_outcome_how(
 
 
 # =============================================================================
-# WHERE LENS ROUTES (Portfolio Access Required)
+# WHERE LENS ROUTES (Portfolio Access Required + Site Scope)
 # =============================================================================
 
 @where_router.get("/priorities/summary")
@@ -1396,10 +1426,18 @@ async def get_priorities_summary_where(
     Get priority summary for portfolio view.
     
     Auth: WHERE lens access required (portfolio or admin)
+    Scope: Aggregates only across user's assigned sites
     Uses WHERELens to enforce payload discipline.
     """
     priorities = await db.get_active_priorities()
-    return WHERELens.portfolio_summary(priorities)
+    
+    # Build asset lookup for scope filtering
+    asset_lookup = await build_asset_lookup_with_sites(db)
+    
+    # Filter priorities by user's site scope
+    scoped_priorities = filter_priorities_by_scope(priorities, user, asset_lookup)
+    
+    return WHERELens.portfolio_summary(scoped_priorities)
 
 
 @where_router.get("/sites/{site_id}/states")
@@ -1413,7 +1451,12 @@ async def get_site_states_where(
     Uses WHERELens to enforce payload discipline.
     
     Auth: WHERE lens access required (portfolio or admin)
+    Scope: Site must be in user's assigned sites
     """
+    # Check site is in user's scope
+    if not check_site_in_scope(site_id, user):
+        raise HTTPException(status_code=403, detail="Site not in your scope")
+    
     assets = await db.get_assets_for_site(site_id)
     asset_ids = [a["id"] for a in assets]
     
@@ -1422,6 +1465,44 @@ async def get_site_states_where(
     site_states = [s for s in all_active_states if s.get("asset_id") in asset_ids]
     
     return WHERELens.site_states_summary(site_id, site_states, len(assets))
+
+
+@where_router.get("/sites")
+async def get_accessible_sites_where(
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_where_lens_access)
+):
+    """
+    Get list of sites accessible to the current user.
+    
+    Auth: WHERE lens access required (portfolio or admin)
+    Scope: Returns only user's assigned sites (or all for admin)
+    """
+    from sqlalchemy import text as sql_text
+    
+    # Get all sites
+    result = await db.session.execute(sql_text("""
+        SELECT id, name, organisation_id, timezone, currency
+        FROM ramp_sites
+        ORDER BY name
+    """))
+    all_sites = [dict(row._mapping) for row in result.fetchall()]
+    
+    # Filter by user's scope
+    site_filter = user.site_ids
+    if user.role.value == "admin" and site_filter is None:
+        # Admin with all access
+        accessible_sites = all_sites
+    elif site_filter:
+        accessible_sites = [s for s in all_sites if s["id"] in site_filter]
+    else:
+        accessible_sites = []
+    
+    return {
+        "sites": accessible_sites,
+        "count": len(accessible_sites),
+        "scope": "all" if site_filter is None else "scoped"
+    }
 
 
 # =============================================================================
