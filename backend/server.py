@@ -48,6 +48,7 @@ api_router = APIRouter(prefix="/api")
 how_router = APIRouter(prefix="/api/how", tags=["HOW Lens"])
 where_router = APIRouter(prefix="/api/where", tags=["WHERE Lens"])
 system_router = APIRouter(prefix="/api/system", tags=["System"])
+auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 
 
 # =============================================================================
@@ -2192,6 +2193,272 @@ async def root():
 
 
 # =============================================================================
+# AUTHENTICATION ENDPOINTS
+# =============================================================================
+
+from ramp.auth import (
+    SignUpRequest, SignInRequest, AssignRoleRequest, UpdateRoleRequest,
+    UserRole, AuthenticatedUser
+)
+from ramp.auth.dependencies import (
+    get_current_user, require_admin, require_how_lens_access,
+    require_where_lens_access, authenticate_websocket
+)
+from ramp.auth.service import AuthService, is_supabase_configured
+
+
+async def get_auth_service(db: RAMPDatabase = Depends(get_db)):
+    """Get auth service instance."""
+    return AuthService(db)
+
+
+@auth_router.get("/status")
+async def auth_status():
+    """
+    Check authentication configuration status.
+    
+    Returns whether Supabase Auth is configured and ready to use.
+    """
+    configured = is_supabase_configured()
+    
+    return {
+        "supabase_configured": configured,
+        "status": "ready" if configured else "not_configured",
+        "message": (
+            "Authentication is ready" if configured 
+            else "Supabase Auth not configured. Set SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY, and JWT_SECRET in backend/.env"
+        ),
+        "required_env_vars": [
+            "SUPABASE_URL",
+            "SUPABASE_ANON_KEY", 
+            "SUPABASE_SERVICE_ROLE_KEY",
+            "JWT_SECRET"
+        ] if not configured else None
+    }
+
+
+@auth_router.post("/signup")
+async def signup(
+    request: SignUpRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Register a new user account.
+    
+    Note: User will NOT have access until an admin assigns a role.
+    """
+    result = await auth_service.sign_up(
+        email=request.email,
+        password=request.password,
+        full_name=request.full_name
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+@auth_router.post("/signin")
+async def signin(
+    request: SignInRequest,
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Sign in with email and password.
+    
+    Returns access token if user has an assigned role.
+    Returns error if no role is assigned (contact admin).
+    """
+    result = await auth_service.sign_in(
+        email=request.email,
+        password=request.password
+    )
+    
+    if "error" in result:
+        status_code = 401 if result["error"] == "Invalid credentials" else 403
+        raise HTTPException(status_code=status_code, detail=result)
+    
+    return result
+
+
+@auth_router.post("/signout")
+async def signout(
+    user: AuthenticatedUser = Depends(get_current_user),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Sign out the current user.
+    
+    Client should also discard the JWT token.
+    """
+    return await auth_service.sign_out()
+
+
+@auth_router.get("/me")
+async def get_current_user_info(
+    user: AuthenticatedUser = Depends(get_current_user)
+):
+    """
+    Get current authenticated user's information.
+    
+    Returns role and scope information.
+    """
+    return {
+        "user_id": user.user_id,
+        "email": user.email,
+        "role": user.role.value,
+        "organisation_id": user.organisation_id,
+        "site_ids": user.site_ids,
+        "lens_access": {
+            "how": user.can_access_how_lens(),
+            "where": user.can_access_where_lens()
+        }
+    }
+
+
+# =============================================================================
+# ADMIN: USER MANAGEMENT
+# =============================================================================
+
+@auth_router.post("/admin/assign-role")
+async def admin_assign_role(
+    request: AssignRoleRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Admin only: Assign a role to a user.
+    
+    Role types:
+    - operator: HOW lens access, can log interventions
+    - portfolio: WHERE lens access, cross-site analytics
+    - admin: Full access to both lenses
+    
+    Scope:
+    - organisation_id: Required for all roles
+    - site_ids: Required for operator/portfolio, optional for admin
+    """
+    # Validate site_ids requirement for non-admin roles
+    if request.role != UserRole.ADMIN and not request.site_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="site_ids required for operator and portfolio roles"
+        )
+    
+    # Operators can only see their assigned organisation
+    if request.organisation_id != admin.organisation_id and admin.role != UserRole.ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot assign roles for other organisations"
+        )
+    
+    result = await auth_service.assign_role(
+        user_id=request.user_id,
+        email=request.email,
+        role=request.role,
+        organisation_id=request.organisation_id,
+        site_ids=request.site_ids,
+        full_name=request.full_name,
+        assigned_by=admin.user_id
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+@auth_router.patch("/admin/users/{user_id}/role")
+async def admin_update_role(
+    user_id: str,
+    request: UpdateRoleRequest,
+    admin: AuthenticatedUser = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Admin only: Update a user's role or scope.
+    """
+    result = await auth_service.update_role(
+        user_id=user_id,
+        role=request.role,
+        site_ids=request.site_ids,
+        is_active=request.is_active
+    )
+    
+    if result is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return result
+
+
+@auth_router.post("/admin/users/{user_id}/revoke")
+async def admin_revoke_role(
+    user_id: str,
+    admin: AuthenticatedUser = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Admin only: Revoke (deactivate) a user's role.
+    """
+    success = await auth_service.revoke_role(user_id)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"status": "revoked", "user_id": user_id}
+
+
+@auth_router.get("/admin/users")
+async def admin_list_users(
+    organisation_id: Optional[str] = None,
+    role: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    admin: AuthenticatedUser = Depends(require_admin),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Admin only: List users with optional filters.
+    """
+    role_enum = UserRole(role) if role else None
+    
+    users = await auth_service.list_users(
+        organisation_id=organisation_id or admin.organisation_id,
+        role=role_enum,
+        is_active=is_active
+    )
+    
+    return {"users": users, "count": len(users)}
+
+
+@auth_router.post("/admin/bootstrap")
+async def admin_bootstrap(
+    email: str = Query(...),
+    password: str = Query(...),
+    full_name: str = Query(...),
+    organisation_id: str = Query(...),
+    auth_service: AuthService = Depends(get_auth_service)
+):
+    """
+    Bootstrap the first admin user.
+    
+    This endpoint only works if no admin exists.
+    Use during initial system setup only.
+    """
+    result = await auth_service.bootstrap_admin(
+        email=email,
+        password=password,
+        full_name=full_name,
+        organisation_id=organisation_id
+    )
+    
+    if "error" in result:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+# =============================================================================
 # WEBSOCKET ENDPOINTS
 # =============================================================================
 
@@ -2207,9 +2474,15 @@ from ramp.websocket.broadcaster import initialize_handlers
 
 
 @app.websocket("/ws/priorities")
-async def websocket_priorities(websocket: WebSocket):
+async def websocket_priorities(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None)
+):
     """
     WebSocket endpoint for real-time priority queue updates.
+    
+    Authentication: Required (pass token as query parameter)
+    Access: HOW lens (operator, admin)
     
     Channel: priorities
     
@@ -2229,6 +2502,17 @@ async def websocket_priorities(websocket: WebSocket):
     - Server sends heartbeat every 30 seconds
     - Client should respond to maintain connection
     """
+    # Authenticate
+    user = await authenticate_websocket(websocket, token)
+    if user is None:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+    
+    # Check HOW lens access
+    if not user.can_access_how_lens():
+        await websocket.close(code=4003, reason="HOW lens access required")
+        return
+    
     await manager.connect(websocket, "priorities")
     
     try:
@@ -2307,9 +2591,17 @@ async def websocket_priorities(websocket: WebSocket):
 
 
 @app.websocket("/ws/states/{asset_id}")
-async def websocket_states(websocket: WebSocket, asset_id: str):
+async def websocket_states(
+    websocket: WebSocket, 
+    asset_id: str,
+    token: Optional[str] = Query(None)
+):
     """
     WebSocket endpoint for real-time state updates for a specific asset.
+    
+    Authentication: Required (pass token as query parameter)
+    Access: HOW lens (operator, admin)
+    Scope: User must have access to the asset's site
     
     Channel: states:{asset_id}
     
@@ -2325,6 +2617,17 @@ async def websocket_states(websocket: WebSocket, asset_id: str):
     - On connect, sends 'resync' message with current active states
     - Client should reconcile local state with resync data
     """
+    # Authenticate
+    user = await authenticate_websocket(websocket, token)
+    if user is None:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+    
+    # Check HOW lens access
+    if not user.can_access_how_lens():
+        await websocket.close(code=4003, reason="HOW lens access required")
+        return
+    
     channel = f"states:{asset_id}"
     await manager.connect(websocket, channel)
     
@@ -2404,9 +2707,15 @@ async def websocket_states(websocket: WebSocket, asset_id: str):
 
 
 @app.websocket("/ws/outcomes")
-async def websocket_outcomes(websocket: WebSocket):
+async def websocket_outcomes(
+    websocket: WebSocket,
+    token: Optional[str] = Query(None)
+):
     """
     WebSocket endpoint for verified outcome notifications.
+    
+    Authentication: Required (pass token as query parameter)
+    Access: HOW lens (operator, admin)
     
     Channel: outcomes
     
@@ -2417,6 +2726,17 @@ async def websocket_outcomes(websocket: WebSocket):
     This channel is primarily for receiving notifications when
     outcomes are verified, useful for updating value summaries.
     """
+    # Authenticate
+    user = await authenticate_websocket(websocket, token)
+    if user is None:
+        await websocket.close(code=4001, reason="Authentication required")
+        return
+    
+    # Check HOW lens access (outcomes relate to operator actions)
+    if not user.can_access_how_lens():
+        await websocket.close(code=4003, reason="HOW lens access required")
+        return
+    
     await manager.connect(websocket, "outcomes")
     
     try:
@@ -2481,6 +2801,7 @@ app.include_router(api_router)
 app.include_router(how_router)
 app.include_router(where_router)
 app.include_router(system_router)
+app.include_router(auth_router)
 
 app.add_middleware(
     CORSMiddleware,
