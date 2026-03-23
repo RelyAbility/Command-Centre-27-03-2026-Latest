@@ -4,9 +4,10 @@ RAMP Command Centre API
 
 FastAPI backend with PostgreSQL persistence via Supabase.
 Implements HOW and WHERE lens separation at API level.
+Includes real-time WebSocket updates driven from event backbone.
 """
 
-from fastapi import FastAPI, APIRouter, HTTPException, Query, Depends
+from fastapi import FastAPI, APIRouter, HTTPException, Query, Depends, WebSocket, WebSocketDisconnect
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 import os
@@ -16,6 +17,8 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timezone, timedelta
 import random
+import asyncio
+import json
 
 # Load environment
 ROOT_DIR = Path(__file__).parent
@@ -2189,6 +2192,288 @@ async def root():
 
 
 # =============================================================================
+# WEBSOCKET ENDPOINTS
+# =============================================================================
+
+# Import WebSocket components
+from ramp.websocket import (
+    manager, 
+    build_priority_update_payload,
+    build_state_update_payload,
+    build_resync_payload,
+    build_heartbeat_payload
+)
+from ramp.websocket.broadcaster import initialize_handlers
+
+
+@app.websocket("/ws/priorities")
+async def websocket_priorities(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time priority queue updates.
+    
+    Channel: priorities
+    
+    Events received:
+    - priority_created: New priority added to queue
+    - priority_updated: Existing priority changed
+    - priority_escalated: Priority band escalated
+    - state_started: New state may create priority
+    - state_ended: State end may expire priority
+    - outcome_verified: Verified outcome affects value summary
+    
+    Reconnect behavior:
+    - On connect, sends 'resync' message with current priority queue
+    - Client should reconcile local state with resync data
+    
+    Heartbeat:
+    - Server sends heartbeat every 30 seconds
+    - Client should respond to maintain connection
+    """
+    await manager.connect(websocket, "priorities")
+    
+    try:
+        # Send initial resync with current priorities
+        async with AsyncSessionLocal() as session:
+            db = RAMPDatabase(session)
+            priorities = await db.get_active_priorities()
+            
+            # Build lens-compliant priority list
+            priority_list = []
+            for p in priorities:
+                asset = await db.get_asset(p.get("asset_id"))
+                states = await db.get_active_states(p.get("asset_id"))
+                state = next((s for s in states if s["id"] == p.get("state_id")), None)
+                
+                payload = build_priority_update_payload(
+                    event_type="resync",
+                    priority_data=p,
+                    state_data=state,
+                    asset_data=asset
+                )
+                priority_list.append(payload["data"])
+            
+            resync = build_resync_payload("priorities", priorities=priority_list)
+            await websocket.send_text(json.dumps(resync, default=str))
+        
+        # Main message loop with heartbeat
+        heartbeat_interval = 30  # seconds
+        
+        while True:
+            try:
+                # Check for incoming messages with timeout for heartbeat
+                message = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=heartbeat_interval
+                )
+                
+                # Handle client messages (e.g., pong, subscribe)
+                try:
+                    data = json.loads(message)
+                    if data.get("type") == "pong":
+                        logger.debug("Received pong from client")
+                    elif data.get("type") == "resync_request":
+                        # Client requested resync
+                        async with AsyncSessionLocal() as session:
+                            db = RAMPDatabase(session)
+                            priorities = await db.get_active_priorities()
+                            priority_list = []
+                            for p in priorities:
+                                asset = await db.get_asset(p.get("asset_id"))
+                                states = await db.get_active_states(p.get("asset_id"))
+                                state = next((s for s in states if s["id"] == p.get("state_id")), None)
+                                payload = build_priority_update_payload(
+                                    event_type="resync",
+                                    priority_data=p,
+                                    state_data=state,
+                                    asset_data=asset
+                                )
+                                priority_list.append(payload["data"])
+                            resync = build_resync_payload("priorities", priorities=priority_list)
+                            await websocket.send_text(json.dumps(resync, default=str))
+                except json.JSONDecodeError:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                heartbeat = build_heartbeat_payload()
+                await websocket.send_text(json.dumps(heartbeat))
+                
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+        logger.info("WebSocket disconnected from priorities channel")
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        await manager.disconnect(websocket)
+
+
+@app.websocket("/ws/states/{asset_id}")
+async def websocket_states(websocket: WebSocket, asset_id: str):
+    """
+    WebSocket endpoint for real-time state updates for a specific asset.
+    
+    Channel: states:{asset_id}
+    
+    Events received:
+    - state_started: New state detected on this asset
+    - state_ended: State resolved on this asset
+    - state_transitioned: State transitioned to new state
+    - priority_created: Priority created for state on this asset
+    - priority_escalated: Priority escalated on this asset
+    - intervention_created: Intervention logged on this asset
+    
+    Reconnect behavior:
+    - On connect, sends 'resync' message with current active states
+    - Client should reconcile local state with resync data
+    """
+    channel = f"states:{asset_id}"
+    await manager.connect(websocket, channel)
+    
+    try:
+        # Verify asset exists and send initial resync
+        async with AsyncSessionLocal() as session:
+            db = RAMPDatabase(session)
+            asset = await db.get_asset(asset_id)
+            
+            if not asset:
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Asset {asset_id} not found"
+                }))
+                await websocket.close()
+                return
+            
+            # Get active states for this asset
+            active_states = await db.get_active_states(asset_id)
+            recent_states = await db.get_recent_states(asset_id, limit=5)
+            
+            state_list = []
+            for s in active_states:
+                payload = build_state_update_payload(
+                    event_type="resync",
+                    state_data=s,
+                    asset_data=asset
+                )
+                state_list.append(payload["data"])
+            
+            resync = build_resync_payload(channel, states=state_list)
+            resync["data"]["asset_id"] = asset_id
+            resync["data"]["asset_name"] = asset.get("name")
+            resync["data"]["recent_states_count"] = len(recent_states)
+            await websocket.send_text(json.dumps(resync, default=str))
+        
+        # Main message loop with heartbeat
+        heartbeat_interval = 30
+        
+        while True:
+            try:
+                message = await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=heartbeat_interval
+                )
+                
+                try:
+                    data = json.loads(message)
+                    if data.get("type") == "resync_request":
+                        async with AsyncSessionLocal() as session:
+                            db = RAMPDatabase(session)
+                            asset = await db.get_asset(asset_id)
+                            active_states = await db.get_active_states(asset_id)
+                            state_list = []
+                            for s in active_states:
+                                payload = build_state_update_payload(
+                                    event_type="resync",
+                                    state_data=s,
+                                    asset_data=asset
+                                )
+                                state_list.append(payload["data"])
+                            resync = build_resync_payload(channel, states=state_list)
+                            await websocket.send_text(json.dumps(resync, default=str))
+                except json.JSONDecodeError:
+                    pass
+                    
+            except asyncio.TimeoutError:
+                heartbeat = build_heartbeat_payload()
+                await websocket.send_text(json.dumps(heartbeat))
+                
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+        logger.info(f"WebSocket disconnected from {channel}")
+    except Exception as e:
+        logger.error(f"WebSocket error on {channel}: {e}")
+        await manager.disconnect(websocket)
+
+
+@app.websocket("/ws/outcomes")
+async def websocket_outcomes(websocket: WebSocket):
+    """
+    WebSocket endpoint for verified outcome notifications.
+    
+    Channel: outcomes
+    
+    Events received:
+    - intervention_completed: Intervention completed, verification pending
+    - outcome_verified: Outcome verified with savings
+    
+    This channel is primarily for receiving notifications when
+    outcomes are verified, useful for updating value summaries.
+    """
+    await manager.connect(websocket, "outcomes")
+    
+    try:
+        # Send initial acknowledgment
+        await websocket.send_text(json.dumps({
+            "type": "connected",
+            "channel": "outcomes",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "message": "Connected to outcomes channel. You will receive notifications when outcomes are verified."
+        }))
+        
+        # Main message loop
+        heartbeat_interval = 30
+        
+        while True:
+            try:
+                # Wait for messages, but mainly to keep connection alive
+                await asyncio.wait_for(
+                    websocket.receive_text(),
+                    timeout=heartbeat_interval
+                )
+            except asyncio.TimeoutError:
+                heartbeat = build_heartbeat_payload()
+                await websocket.send_text(json.dumps(heartbeat))
+                
+    except WebSocketDisconnect:
+        await manager.disconnect(websocket)
+        logger.info("WebSocket disconnected from outcomes channel")
+    except Exception as e:
+        logger.error(f"WebSocket error on outcomes: {e}")
+        await manager.disconnect(websocket)
+
+
+@system_router.get("/ws/status")
+async def websocket_status():
+    """
+    Get WebSocket connection status.
+    
+    Returns count of active connections per channel.
+    """
+    channels = manager.get_channels()
+    
+    return {
+        "total_connections": manager.get_connection_count(),
+        "channels": {
+            channel: manager.get_connection_count(channel)
+            for channel in channels
+        },
+        "available_channels": [
+            "/ws/priorities - Priority queue real-time updates",
+            "/ws/states/{asset_id} - State changes for specific asset",
+            "/ws/outcomes - Verified outcome notifications"
+        ]
+    }
+
+
+# =============================================================================
 # SETUP
 # =============================================================================
 
@@ -2208,12 +2493,14 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup_event():
-    """Initialize database connection on startup."""
+    """Initialize database connection and WebSocket handlers on startup."""
     try:
         await init_db()
-        logger.info("RAMP Command Centre started with PostgreSQL")
+        # Initialize WebSocket event handlers
+        initialize_handlers()
+        logger.info("RAMP Command Centre started with PostgreSQL and WebSocket support")
     except Exception as e:
-        logger.error(f"Database connection failed: {e}")
+        logger.error(f"Startup failed: {e}")
         raise
 
 

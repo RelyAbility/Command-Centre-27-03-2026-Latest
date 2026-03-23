@@ -851,6 +851,11 @@ class RAMPDatabase:
     # =========================================================================
     
     async def create_event(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create an event in the immutable event log.
+        
+        Also triggers WebSocket broadcasts via the event broadcaster.
+        """
         event_id = data.get("id") or generate_id()
         created_at = now_utc()
         payload = to_json(data.get("payload", {}))
@@ -872,6 +877,23 @@ class RAMPDatabase:
             "created_at": created_at
         })
         await self.session.commit()
+        
+        # Trigger WebSocket broadcast (non-blocking)
+        try:
+            from ramp.websocket.broadcaster import broadcast_event
+            await broadcast_event({
+                "id": event_id,
+                "event_type": data["event_type"],
+                "entity_type": data["entity_type"],
+                "entity_id": data["entity_id"],
+                "payload": data.get("payload", {}),
+                "correlation_id": data.get("correlation_id"),
+                "created_at": created_at.isoformat()
+            })
+        except Exception as e:
+            # Don't fail event creation if broadcast fails
+            logger.warning(f"WebSocket broadcast failed: {e}")
+        
         return {"id": event_id, **data}
     
     async def get_events_for_correlation(self, correlation_id: str) -> List[Dict[str, Any]]:
