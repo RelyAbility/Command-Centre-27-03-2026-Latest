@@ -24,6 +24,7 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 - **Frontend:** React + TailwindCSS
 - **Events:** Synchronous dispatch, database-backed immutable audit trail
 - **ORM:** SQLAlchemy with Alembic migrations
+- **Real-time:** WebSocket with event backbone integration
 
 ## Core Requirements Status
 
@@ -48,10 +49,42 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | First 5 Minutes Experience | ✅ Completed (2026-03-20) |
 | **State Transition Tracking** | ✅ Completed (2026-03-20) |
 | **Duration-based Escalation** | ✅ Completed (2026-03-20) |
+| **WebSocket Real-time Updates** | ✅ Completed (2026-03-23) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-20 - State Transition & Escalation Logic (Latest)
+### Date: 2026-03-23 - WebSocket Real-time Updates (Latest)
+
+**P1: Real-time System Behaviour**
+- WebSocket layer driven from event backbone (not separate logic)
+- Lens rules apply in real-time (HOW/WHERE separation enforced)
+- No raw internals exposed (confidence as label, no scores)
+- Controlled/filtered event stream
+- Explicit reconnect/resync behavior for clean client recovery
+
+**WebSocket Endpoints:**
+```
+/ws/priorities      - Priority queue real-time updates
+/ws/states/{asset}  - State changes for specific asset
+/ws/outcomes        - Verified outcome notifications
+GET /api/system/ws/status - Connection status
+```
+
+**Key Features:**
+- Resync on connect provides current state snapshot
+- Heartbeat every 30 seconds to keep connections alive
+- Invalid asset returns error and closes connection
+- Event backbone integration via `broadcaster.py`
+
+**Files Added:**
+- `/app/backend/ramp/websocket/__init__.py` (ConnectionManager, payload builders)
+- `/app/backend/ramp/websocket/broadcaster.py` (Event handlers)
+
+**Testing:** 14/14 backend tests passed
+
+---
+
+### Date: 2026-03-20 - State Transition & Escalation Logic
 
 **P1: State Transition Tracking**
 - States now properly transition (SUPERSEDED, ESCALATED) rather than just ending
@@ -185,10 +218,10 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ### P0 (MVP) ✅ COMPLETE
 
-### P1 (Productization) - Partially Complete
+### P1 (Productization) - Mostly Complete
 - ✅ **State Transition Tracking** — States transition properly with audit trail
 - ✅ **Duration-based Escalation** — Auto-escalate based on configurable thresholds
-- Real-time updates (WebSocket for priority queue, state changes)
+- ✅ **WebSocket Real-time Updates** — Priority queue, state changes, outcomes
 - Rule configuration admin UI
 - Multiple sites support
 - User authentication (Emergent Google Auth or JWT)
@@ -203,27 +236,28 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ## Next Tasks
 
-1. **P1: Real-time Updates**
-   - WebSocket for priority queue updates
-   - State change notifications
-   - Verification completion alerts
-
-2. **P1: Rule Configuration UI**
+1. **P1: Rule Configuration UI**
    - Admin interface for rule management
    - Verification window configuration
 
-3. **P1: Multi-site Support**
+2. **P1: Multi-site Support**
    - Site selector in dashboard
    - Site-level aggregation
+
+3. **P1: Authentication**
+   - User authentication (Emergent Google Auth or JWT)
+   - Role-based access for operators vs portfolio managers
 
 ## Key Files
 
 ### Backend
-- `/app/backend/server.py` — Main API with all endpoints including escalation and state transitions
+- `/app/backend/server.py` — Main API with all endpoints including WebSocket
 - `/app/backend/ramp/db.py` — Database operations including transition_state()
 - `/app/backend/ramp/services/verification_scheduler.py` — Verification logic
 - `/app/backend/ramp/services/verification_config.py` — Configurable windows
-- `/app/backend/ramp/services/escalation.py` — Escalation service (NEW)
+- `/app/backend/ramp/services/escalation.py` — Escalation service
+- `/app/backend/ramp/websocket/__init__.py` — ConnectionManager, payload builders
+- `/app/backend/ramp/websocket/broadcaster.py` — Event backbone integration
 
 ### Frontend
 - `/app/frontend/src/App.js` — First Five Minutes experience with guided tour
@@ -237,3 +271,4 @@ The core RAMP MVP is now **COMPLETE** with:
 - `/app/test_reports/iteration_3.json` — Proof of Value tests (13/13 passed)
 - `/app/test_reports/iteration_4.json` — First Five Minutes tests (11/11 backend + all UI passed)
 - `/app/test_reports/iteration_6.json` — State Transition & Escalation tests (15/16 passed)
+- `/app/test_reports/iteration_7.json` — WebSocket tests (14/14 passed)
