@@ -47,13 +47,68 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | PostgreSQL Migration | ✅ Completed |
 | Proof of Value View | ✅ Completed |
 | First 5 Minutes Experience | ✅ Completed (2026-03-20) |
-| **State Transition Tracking** | ✅ Completed (2026-03-20) |
-| **Duration-based Escalation** | ✅ Completed (2026-03-20) |
-| **WebSocket Real-time Updates** | ✅ Completed (2026-03-23) |
+| State Transition Tracking | ✅ Completed (2026-03-20) |
+| Duration-based Escalation | ✅ Completed (2026-03-20) |
+| WebSocket Real-time Updates | ✅ Completed (2026-03-23) |
+| **Database Security (RLS)** | ✅ Completed (2026-03-23) |
+| **Authentication (Supabase)** | ✅ Completed (2026-03-23) |
+| **Role-based Access Control** | ✅ Completed (2026-03-23) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-23 - WebSocket Real-time Updates (Latest)
+### Date: 2026-03-23 - Authentication & Role-based Access Control (Latest)
+
+**Phase 2: Supabase Auth Integration**
+- Email/password authentication via Supabase Auth
+- JWT tokens with role + scope (organisation_id, site_ids) embedded
+- Three user roles: `operator` (HOW lens), `portfolio` (WHERE lens), `admin` (both)
+- Default role: No access until admin assigns role
+
+**API Endpoints:**
+```
+GET  /api/auth/status         - Auth configuration check
+POST /api/auth/signup         - Register new user
+POST /api/auth/signin         - Sign in, get token
+GET  /api/auth/me             - Current user info
+POST /api/auth/admin/assign-role      - Assign role (admin only)
+PATCH /api/auth/admin/users/{id}/role - Update role
+GET  /api/auth/admin/users            - List users
+POST /api/auth/admin/bootstrap        - Bootstrap first admin
+```
+
+**Route Protection:**
+- HOW routes (`/api/how/*`) require operator or admin role
+- WHERE routes (`/api/where/*`) require portfolio or admin role
+- System routes (`/api/system/*`) remain public (health checks, demos)
+- Admin routes (`/api/auth/admin/*`) require admin role
+- WebSocket endpoints require token via `?token=` query parameter
+
+**Test Users:**
+- Admin: rampadmin@gmail.com / RampAdmin2024!
+- Operator: operator1@gmail.com / Operator2024!
+- Portfolio: portfolio1@gmail.com / Portfolio2024!
+
+**Testing:** 25/25 tests passed (21 HTTP + 4 WebSocket)
+
+---
+
+### Date: 2026-03-23 - Database Security (RLS)
+
+**Phase 1A: RAMP Runtime Tables**
+- Enabled RLS on all 15 `ramp_*` tables
+- No broad policies - backend uses `postgres` role which bypasses RLS
+- Direct API access via `anon`/`authenticated` roles blocked
+
+**Phase 1B: High-risk Legacy Tables**
+- Enabled RLS on 16 sensitive legacy tables
+- Removed overly-permissive policies from `completed_assessments`
+- Tables: payments, checkouts, otp_codes, consultant_*, assessment_*, etc.
+
+**Protected Tables:** 31 total (15 RAMP + 16 legacy)
+
+---
+
+### Date: 2026-03-23 - WebSocket Real-time Updates
 
 **P1: Real-time System Behaviour**
 - WebSocket layer driven from event backbone (not separate logic)
@@ -211,6 +266,8 @@ The core RAMP MVP is now **COMPLETE** with:
 3. ✅ **Verification Loop** — Configurable, guarded, with explicit confidence
 4. ✅ **Proof of Value Surface** — Single view showing business impact
 5. ✅ **First 5 Minutes Experience** — Onboarding/demo that pulls users in
+6. ✅ **Database Security** — RLS enabled on all RAMP and high-risk legacy tables
+7. ✅ **Authentication** — Supabase Auth with role-based access control
 
 ---
 
@@ -218,15 +275,18 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ### P0 (MVP) ✅ COMPLETE
 
-### P1 (Productization) - Mostly Complete
+### P1 (Productization) ✅ COMPLETE
 - ✅ **State Transition Tracking** — States transition properly with audit trail
 - ✅ **Duration-based Escalation** — Auto-escalate based on configurable thresholds
 - ✅ **WebSocket Real-time Updates** — Priority queue, state changes, outcomes
-- Rule configuration admin UI
-- Multiple sites support
-- User authentication (Emergent Google Auth or JWT)
+- ✅ **Database Security (RLS)** — 31 tables protected
+- ✅ **Authentication** — Supabase Auth with JWT tokens
+- ✅ **Role-based Access Control** — operator/portfolio/admin roles with scope
 
 ### P2 (Expansion)
+- Rule configuration admin UI
+- Multiple sites support with scoped access
+- Frontend WebSocket hook / reconnect handling
 - Asset relationships/dependencies
 - Advanced learning (baseline optimization from verified outcomes)
 - Cross-asset benchmarking
@@ -236,23 +296,27 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ## Next Tasks
 
-1. **P1: Rule Configuration UI**
-   - Admin interface for rule management
-   - Verification window configuration
+1. **P2: Frontend WebSocket Hook**
+   - Auto-reconnect handling
+   - Token refresh on reconnect
+   - Priority queue live updates
 
-2. **P1: Multi-site Support**
+2. **P2: Multi-site Support**
    - Site selector in dashboard
    - Site-level aggregation
+   - Scoped access via user roles
 
-3. **P1: Authentication**
-   - User authentication (Emergent Google Auth or JWT)
-   - Role-based access for operators vs portfolio managers
+3. **P2: Rule Configuration UI**
+   - Admin interface for rule management
+   - Verification window configuration
 
 ## Key Files
 
 ### Backend
-- `/app/backend/server.py` — Main API with all endpoints including WebSocket
+- `/app/backend/server.py` — Main API with auth-protected endpoints
 - `/app/backend/ramp/db.py` — Database operations including transition_state()
+- `/app/backend/ramp/auth/` — Authentication module (auth, dependencies, service)
+- `/app/backend/ramp/websocket/` — WebSocket connection manager and broadcaster
 - `/app/backend/ramp/services/verification_scheduler.py` — Verification logic
 - `/app/backend/ramp/services/verification_config.py` — Configurable windows
 - `/app/backend/ramp/services/escalation.py` — Escalation service
