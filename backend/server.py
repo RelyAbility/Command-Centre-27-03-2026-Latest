@@ -29,6 +29,13 @@ from database import AsyncSessionLocal, init_db
 from ramp.db import RAMPDatabase, generate_id, now_utc
 from ramp.lenses import HOWLens, WHERELens
 
+# Auth imports
+from ramp.auth import AuthenticatedUser
+from ramp.auth.dependencies import (
+    get_current_user, require_admin, require_how_lens_access,
+    require_where_lens_access, authenticate_websocket
+)
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -1172,14 +1179,19 @@ async def demo_insufficient_data(db: RAMPDatabase = Depends(get_db)):
 
 
 # =============================================================================
-# HOW LENS ROUTES
+# HOW LENS ROUTES (Operator Access Required)
 # =============================================================================
 
 @how_router.get("/priorities")
-async def get_priorities_how(db: RAMPDatabase = Depends(get_db)):
+async def get_priorities_how(
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_how_lens_access)
+):
     """
     Get priority queue for operators.
     Uses HOWLens to enforce payload discipline.
+    
+    Auth: HOW lens access required (operator or admin)
     """
     priorities = await db.get_active_priorities()
     
@@ -1207,10 +1219,16 @@ async def get_priorities_how(db: RAMPDatabase = Depends(get_db)):
 
 
 @how_router.get("/assets/{asset_id}/state")
-async def get_asset_state_how(asset_id: str, db: RAMPDatabase = Depends(get_db)):
+async def get_asset_state_how(
+    asset_id: str, 
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_how_lens_access)
+):
     """
     Get current state for an asset.
     Uses HOWLens to enforce payload discipline.
+    
+    Auth: HOW lens access required (operator or admin)
     """
     asset = await db.get_asset(asset_id)
     if not asset:
@@ -1226,11 +1244,14 @@ async def get_asset_state_how(asset_id: str, db: RAMPDatabase = Depends(get_db))
 @how_router.post("/interventions")
 async def create_intervention_how(
     intervention: InterventionCreate,
-    db: RAMPDatabase = Depends(get_db)
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_how_lens_access)
 ):
     """
     Create an intervention for a state.
     Triggers baseline freeze for verification.
+    
+    Auth: HOW lens access required (operator or admin)
     """
     # Get state to get asset_id
     active_states = await db.get_active_states()
@@ -1245,14 +1266,14 @@ async def create_intervention_how(
     # Freeze baseline
     frozen_baseline = await db.freeze_baseline(asset_id, generate_id())
     
-    # Create intervention
+    # Create intervention - use authenticated user if created_by not specified
     intervention_record = await db.create_intervention({
         "state_id": intervention.state_id,
         "asset_id": asset_id,
         "frozen_baseline_id": frozen_baseline["id"] if frozen_baseline else None,
         "intervention_type": intervention.intervention_type,
         "description": intervention.description,
-        "created_by": intervention.created_by
+        "created_by": intervention.created_by or user.email
     })
     
     # Update frozen baseline with intervention ID
@@ -1302,11 +1323,14 @@ async def create_intervention_how(
 @how_router.post("/interventions/complete")
 async def complete_intervention_how(
     data: InterventionComplete,
-    db: RAMPDatabase = Depends(get_db)
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_how_lens_access)
 ):
     """
     Mark an intervention as complete.
     Creates pending outcome for verification.
+    
+    Auth: HOW lens access required (operator or admin)
     """
     intervention = await db.get_intervention(data.intervention_id)
     if not intervention:
@@ -1346,24 +1370,32 @@ async def complete_intervention_how(
 @how_router.get("/interventions/{intervention_id}/outcome")
 async def get_intervention_outcome_how(
     intervention_id: str,
-    db: RAMPDatabase = Depends(get_db)
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_how_lens_access)
 ):
     """
     Get verification outcome for an intervention.
     Uses HOWLens to enforce payload discipline.
+    
+    Auth: HOW lens access required (operator or admin)
     """
     outcome = await db.get_outcome_for_intervention(intervention_id)
     return HOWLens.outcome_response(outcome, intervention_id)
 
 
 # =============================================================================
-# WHERE LENS ROUTES
+# WHERE LENS ROUTES (Portfolio Access Required)
 # =============================================================================
 
 @where_router.get("/priorities/summary")
-async def get_priorities_summary_where(db: RAMPDatabase = Depends(get_db)):
+async def get_priorities_summary_where(
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_where_lens_access)
+):
     """
     Get priority summary for portfolio view.
+    
+    Auth: WHERE lens access required (portfolio or admin)
     Uses WHERELens to enforce payload discipline.
     """
     priorities = await db.get_active_priorities()
@@ -1371,10 +1403,16 @@ async def get_priorities_summary_where(db: RAMPDatabase = Depends(get_db)):
 
 
 @where_router.get("/sites/{site_id}/states")
-async def get_site_states_where(site_id: str, db: RAMPDatabase = Depends(get_db)):
+async def get_site_states_where(
+    site_id: str, 
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_where_lens_access)
+):
     """
     Get state summary for a site.
     Uses WHERELens to enforce payload discipline.
+    
+    Auth: WHERE lens access required (portfolio or admin)
     """
     assets = await db.get_assets_for_site(site_id)
     asset_ids = [a["id"] for a in assets]
@@ -2198,11 +2236,7 @@ async def root():
 
 from ramp.auth import (
     SignUpRequest, SignInRequest, AssignRoleRequest, UpdateRoleRequest,
-    UserRole, AuthenticatedUser
-)
-from ramp.auth.dependencies import (
-    get_current_user, require_admin, require_how_lens_access,
-    require_where_lens_access, authenticate_websocket
+    UserRole
 )
 from ramp.auth.service import AuthService, is_supabase_configured
 
