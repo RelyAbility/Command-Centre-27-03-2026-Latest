@@ -20,7 +20,7 @@ from datetime import datetime
 from typing import Dict, Any, Optional
 
 class RAMPAPITester:
-    def __init__(self, base_url="https://event-loop-1.preview.emergentagent.com"):
+    def __init__(self, base_url="https://ramp-industrial-ai.preview.emergentagent.com"):
         self.base_url = base_url
         self.session = requests.Session()
         self.tests_run = 0

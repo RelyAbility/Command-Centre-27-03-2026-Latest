@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import "@/App.css";
 import axios from "axios";
+import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { useRAMPWebSocket, useRAMPPriorities } from "./hooks/useRAMPWebSocket";
+import { ConnectionIndicator, ReconnectingBanner } from "./components/ConnectionStatus";
+import { LoginForm, DemoCredentials } from "./components/LoginForm";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -632,4 +636,221 @@ function App() {
   );
 }
 
-export default App;
+/**
+ * AppContent - The main authenticated content
+ */
+function AppContent() {
+  const { isAuthenticated, token, user, signOut, canAccessHOW } = useAuth();
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  
+  // WebSocket connection - only connect if authenticated and has HOW access
+  const { 
+    isConnected, 
+    priorities: wsPriorities,
+    priorityDistribution,
+    totalValueAtRisk: wsValueAtRisk,
+    connect: wsConnect,
+  } = useRAMPWebSocket(canAccessHOW ? token : null, { 
+    autoConnect: canAccessHOW 
+  });
+
+  // If not authenticated, show login option
+  if (!isAuthenticated) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-8">
+        <div className="max-w-md w-full">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-bold text-white mb-4">
+              RAMP
+            </h1>
+            <p className="text-xl text-slate-300 mb-2">
+              State-Based Industrial Intelligence
+            </p>
+            <p className="text-slate-400">
+              Sign in to access real-time monitoring
+            </p>
+          </div>
+          
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 p-6">
+            <LoginForm 
+              initialEmail={loginEmail}
+              initialPassword={loginPassword}
+            />
+            
+            <div className="mt-6 pt-6 border-t border-slate-700">
+              <DemoCredentials 
+                onSelect={(email, password) => {
+                  setLoginEmail(email);
+                  setLoginPassword(password);
+                }}
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Authenticated - show main app with WebSocket integration
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-100">
+      {/* Header */}
+      <header className="bg-slate-800/80 backdrop-blur-sm border-b border-slate-700/50 sticky top-0 z-40">
+        <div className="max-w-7xl mx-auto px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <h1 className="text-xl font-semibold tracking-tight">
+                RAMP <span className="text-slate-400 font-normal">Command Centre</span>
+              </h1>
+              <ConnectionIndicator />
+            </div>
+            <div className="flex items-center gap-4">
+              <span className="text-sm text-slate-400">
+                {user?.email}
+                <span className="ml-2 px-2 py-0.5 bg-slate-700 rounded text-xs capitalize">
+                  {user?.role}
+                </span>
+              </span>
+              <button
+                onClick={signOut}
+                className="text-sm text-slate-400 hover:text-white"
+                data-testid="sign-out-btn"
+              >
+                Sign Out
+              </button>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      {/* Reconnecting Banner */}
+      <ReconnectingBanner className="mx-6 mt-4" />
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-6 py-8 pb-24">
+        {/* Real-time Value Summary */}
+        <div className="bg-gradient-to-br from-slate-800 to-slate-800/50 rounded-2xl border border-slate-700/50 p-6 mb-6">
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider mb-1">
+                Live Value at Risk
+              </h2>
+              <div className="flex items-baseline gap-2">
+                <span className="text-5xl font-bold text-amber-400" data-testid="live-var">
+                  ${wsValueAtRisk?.toLocaleString() || "0"}
+                </span>
+                <span className="text-xl text-slate-400">/day</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-2xl font-semibold text-white">
+                {wsPriorities?.length || 0}
+              </div>
+              <div className="text-xs text-slate-400">active priorities</div>
+            </div>
+          </div>
+          
+          {/* Priority Distribution */}
+          <div className="flex gap-4">
+            {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(band => (
+              <div key={band} className="flex items-center gap-2">
+                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>
+                  {band}
+                </span>
+                <span className="text-sm text-slate-300">
+                  {priorityDistribution?.[band] || 0}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Real-time Priority List */}
+        <div className="bg-slate-800 rounded-2xl border border-slate-700/50 p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider">
+              Live Priority Queue
+              {isConnected && (
+                <span className="ml-2 text-emerald-400 text-xs">
+                  (real-time)
+                </span>
+              )}
+            </h2>
+            <span className="text-xs text-slate-500">
+              Updates automatically via WebSocket
+            </span>
+          </div>
+          
+          <div className="space-y-3" data-testid="live-priorities">
+            {wsPriorities?.length === 0 ? (
+              <div className="text-center py-8 text-slate-500">
+                {isConnected ? 'No active priorities' : 'Connecting to live updates...'}
+              </div>
+            ) : (
+              wsPriorities?.map((priority, idx) => (
+                <div
+                  key={priority.priority_id || priority.id || idx}
+                  className="bg-slate-700/30 rounded-xl p-4 border border-slate-700/50"
+                  data-testid={`live-priority-${idx}`}
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl font-bold text-slate-600">#{idx + 1}</span>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[priority.priority_band]}`}>
+                            {priority.priority_band}
+                          </span>
+                          <span className="font-medium text-white">
+                            {priority.asset_name || priority.asset_id}
+                          </span>
+                        </div>
+                        <div className="text-sm text-slate-400 mt-0.5">
+                          {priority.state_type || 'Active state'}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-xl font-semibold text-amber-400">
+                        ${(priority.value_at_risk_per_day || priority.economic_impact?.value_at_risk_per_day || 0).toFixed(0)}
+                        <span className="text-xs text-slate-400">/day</span>
+                      </div>
+                      <div className="text-xs text-slate-500">
+                        Score: {priority.priority_score || 0}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </main>
+
+      {/* Footer */}
+      <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-sm border-t border-slate-700/50 px-6 py-2 z-30">
+        <div className="max-w-7xl mx-auto flex items-center justify-between text-xs text-slate-500">
+          <span>RAMP Command Centre</span>
+          <ConnectionIndicator showLabel={true} />
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+/**
+ * Root App with Providers
+ */
+function AppWithProviders() {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
+  );
+}
+
+// Keep the original App for demo mode
+export { App as DemoApp };
+export default AppWithProviders;

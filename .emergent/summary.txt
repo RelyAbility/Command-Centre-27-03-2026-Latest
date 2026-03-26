@@ -1,71 +1,77 @@
 <analysis>**original_problem_statement:**
-The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. The project's core is the SBM loop: . The initial MVP was built on MongoDB, but the user mandated a migration to Supabase/PostgreSQL. After completing the migration, the goal was to build out the full verification and learning loop. The project has since evolved to include a Proof of Value frontend view and a First 5 Minutes guided demo experience. The current focus is on ensuring the implementation is in strict alignment with a set of canonical engineering and data schema documents provided by the user before any further feature expansion.
+The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. The project's core is the SBM loop: . After migrating from MongoDB to PostgreSQL, the project has evolved to include a Proof of Value frontend, a guided demo, and now a focus on implementing robust architectural features like real-time updates, security hardening, and full authentication with role-based and multi-site scoped access, all while aligning with canonical engineering documents.
 
 **PRODUCT REQUIREMENTS:**
-- The application must align with the canonical  and  documents provided by the user.
-- Implement the core RAMP services: Ingestion, Baseline, State, Priority, Intervention, Verification, and Learning on PostgreSQL.
-- Enforce strict API and payload separation between the  (operator) and  (portfolio) lenses.
-- The entire system must be event-driven with an immutable event log.
-- Before expanding with new features (like real-time updates or multi-site support), the existing implementation must be architecturally sound and aligned with the provided specifications.
+- Implement the core RAMP services (Ingestion, Baseline, State, Priority, Intervention, Verification, Learning) on PostgreSQL.
+- Enforce a strict API and payload separation between the  (operator) and  (portfolio) lenses.
+- The system must be event-driven with an immutable event log.
+- Implement real-time system behavior using WebSockets.
+- Secure the application by implementing authentication, role-based access control (RBAC), and Row-Level Security (RLS).
+- Scope data access based on a user's role and their assigned sites.
 
 **User's preferred language**: English
 
 **what currently exists?**
-A full-stack application with a FastAPI backend and a React frontend. The backend migration from MongoDB to Supabase/PostgreSQL is complete. The core MVP loop ( →  →  →  →  → ) is fully functional and has been tested. The backend includes a verification scheduler, configurable verification windows, and handles different outcome statuses (, , ). The frontend features a Proof of Value dashboard that summarizes key business metrics and a First 5 Minutes guided tour to onboard new users or for demo purposes. The API now complies with the user's Lens Contract by suppressing raw scores and using descriptive labels for operator-facing data. The user has just provided new canonical reference files for the data layer.
+A full-stack application with a FastAPI backend and React frontend using a PostgreSQL database. The application is feature-rich and includes:
+- The complete SBM core loop ( -> ).
+- State transition tracking and priority escalation logic.
+- A real-time WebSocket layer for live updates on priorities and states.
+- A comprehensive security model with Supabase Auth integration for email/password login.
+- A  table that defines user roles (, , ) and their access scope (organisation and site IDs).
+- Role-based access control (RBAC) protecting all API and WebSocket endpoints.
+- Row-Level Security (RLS) enabled on all 31 critical RAMP and legacy tables, blocking direct API access while allowing the backend to function via a privileged  role.
+- A multi-site data structure with test users assigned to different sites.
 
 **Last working item**:
--   **Last item agent was working:** The agent was reviewing new canonical reference documents provided by the user, specifically  and , to understand the authoritative data model.
--   **Status:** IN PROGRESS
--   **Agent Testing Done:** N/A
--   **Which testing method agent to use?** backend testing agent (after proposing changes based on the gap analysis)
+-   **Last item agent was working:** The agent was implementing and testing multi-site scoped access. This involved creating a new site, assigning users to specific sites, and updating backend API endpoints (HOW and WHERE lenses) to filter data based on the authenticated user's assigned site(s). The agent successfully implemented scoped access for the HOW lens and for listing a user's accessible sites.
+-   **Status:** USER VERIFICATION PENDING
+-   **Agent Testing Done:** Y
+-   **Which testing method agent to use?** backend testing agent
 -   **User Testing Done:** N
 
 **All Pending/In progress Issue list**:
-This is a list of alignment tasks, not traditional bugs.
--   **Issue 1:** (P0) Data Layer Misalignment. The current Alembic-generated schema may differ from the canonical  provided by the user.
-
-    -   **Attempted fixes:** None yet. The agent just finished reviewing the files.
+-   **Issue 1:** (P0) WHERE lens summary does not respect multi-site scope.
+    -   **Attempted fixes:** None. The issue was just discovered during testing.
     -   **Next debug checklist:**
-        1.  Perform a detailed comparison between the current database schema (defined in  and Alembic versions) and the schema defined in .
-        2.  Identify all discrepancies in table names, column names, data types, constraints, and relationships.
-        3.  Propose a plan to migrate the current schema to the canonical schema using a new Alembic migration script.
-    -   **Why fix this issue and what will be achieved with the fix?** To ensure the application's data layer is fully aligned with the user's authoritative system design, preventing future inconsistencies and simplifying integration with other potential systems.
-    -   **Status:** NOT STARTED
+        1.  Review the  method in .
+        2.  Inspect how it queries for priorities and aggregates data. It is likely not applying the  filter from the authenticated user context.
+        3.  Modify the database queries within this method to filter by the list of site IDs associated with the portfolio user.
+        4.  Create a test script using  to sign in as the portfolio user and call the WHERE summary endpoint, verifying that it correctly aggregates data from both  and .
+    -   **Why fix this issue and what will be achieved with the fix?** This fix is critical to complete the multi-site support feature. It will ensure that portfolio users see correctly aggregated data across all sites they are authorized to view, preventing data leakage and fulfilling the user's requirement.
+    -   **Status:** IN PROGRESS
     -   **Is recurring issue?** N
     -   **Should Test frontend/backend/both after fix?** backend
     -   **Blocked on other issue:** None
 
 **In progress Task List**:
--   **Task 1:** (P0) Engineering and Data Schema Alignment.
-    -   **Where to resume:** Create a comprehensive gap assessment based on the review of all canonical documents (Engineering Blueprint, Developer Spec, and especially the newly provided  files). Present this assessment to the user, outlining what aligns, what differs, and a plan for correction.
-    -   **What will be achieved with this?** A clear, user-approved plan to bring the entire application into full compliance with the canonical system design.
+-   **Task 1:** (P0) Finalize multi-site support implementation.
+    -   **Where to resume:** Address Issue 1 above by fixing the  method.
+    -   **What will be achieved with this?** This will complete the multi-site scoped access feature, ensuring both HOW and WHERE lenses correctly filter and display data based on user permissions.
     -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** both
-    -   **Blocked on something:** User approval of the gap assessment.
+    -   **Should Test frontend/backend/both after fix?** backend
+    -   **Blocked on something:** None
 
 **Upcoming and Future Tasks**
 - **Upcoming Tasks:**
-    - **P1: State Transition Tracking:** As per the gap analysis in , implement state transition logic. This involves adding fields like  to the  table and ensuring the event log captures these transitions correctly.
-    - **P2: Escalation Logic:** Implement duration-based automatic escalation for priorities that remain unaddressed for too long, as identified in the alignment document.
-
+  - **P0: Frontend WebSocket Hook:** Implement a React hook or component to handle authenticated WebSocket connections, reconnections, and state synchronization based on real-time messages.
 - **Future Tasks:**
-    - Real-time updates via WebSockets for the frontend.
-    - Admin UI for rule configuration.
-    - Multi-site support and asset relationships.
-    - Learning-driven baseline optimization.
-    - Outcome export (CSV/PDF).
-    - Authentication.
+  - **P1: Admin UI:** Build a user interface for administrators to manage users and assign roles/scopes.
+  - **P2: Rule Configuration UI:** Develop a frontend for configuring the rules that drive the state engine.
+  - **P3: Secure Remaining Legacy Tables:** Continue the security hardening by enabling RLS on the 59 non-critical legacy tables.
+  - **P3: Review  table policies:** Investigate the permissive policies on the legacy  table and decide on a course of action.
+  - Learning-driven baseline optimization.
+  - Outcome export (CSV/PDF).
+  - Implement Assessment/LEAP modules using canonical schemas as a reference.
 
 **Completed work in this session**
-- **PostgreSQL Migration Blocker Fixed:** Resolved the critical  for JSONB data insertion by refactoring all database insertion logic in  to use SQLAlchemy Core's expression language (, ) instead of raw SQL with .
-- **Core MVP Loop Completed:** Implemented the full verification and learning loop, including a verification scheduler, configurable time windows, and robust handling of , , and  outcomes.
-- **Relational Integrity Verified:** Created a  endpoint to prove the full  chain is referentially intact using SQL JOINs.
-- **Proof of Value Frontend View:** Built a focused frontend dashboard that summarizes value at risk, top actions, and verified savings.
-- **First 5 Minutes Guided Experience:** Developed a comprehensive onboarding/demo flow with a dedicated backend endpoint () and an interactive frontend tour.
-- **Lens Contract Compliance:** Refactored all  lens-related API endpoints and frontend components to suppress raw scores (priority, confidence) and consistently use descriptive labels (strong, moderate, etc.), as mandated by the user's canonical documents.
+- **Data Layer Alignment Analysis:** Confirmed the canonical SQL schema represents a different product variant and received user approval to maintain the current SBM schema.
+- **State Transition & Escalation Logic:** Implemented and tested backend logic for state transitions () and automatic/manual priority escalation.
+- **WebSocket Real-Time Layer:** Built and tested a complete WebSocket system for broadcasting real-time updates on priorities and states, driven by the existing event backbone.
+- **Database Security Hardening (Phase 1A & 1B):** Enabled Row-Level Security (RLS) on all 15 active RAMP tables and 16 high-risk legacy tables, successfully blocking direct API access without disrupting backend functionality.
+- **Authentication & RBAC (Phase 2):** Fully implemented and tested an authentication system using Supabase Auth, with role-based (, , ) and scope-based (site ID) access control for all API and WebSocket endpoints.
 
 **Earlier issues found/mentioned but not fixed**
-- None. The agent has addressed all identified issues and alignment gaps as they were prioritized by the user.
+- None. All issues prioritized by the user in this session have been addressed.
 
 **Known issue recurrence from previous fork**
 - None.
@@ -75,82 +81,79 @@ This is a list of alignment tasks, not traditional bugs.
 
 **Key Technical Concepts**
 - **Backend:** FastAPI, SQLAlchemy Core
-- **Database:** Supabase/PostgreSQL
-- **DB Migration:** Alembic
+- **Database:** Supabase/PostgreSQL, Alembic
 - **Frontend:** React
-- **Architecture:** Event-Driven, Service-Oriented, strict HOW/WHERE Lens separation.
+- **Real-time:** FastAPI WebSockets
+- **Security:** JWT Authentication, Role-Based Access Control (RBAC), Row-Level Security (RLS)
+- **Architecture:** Event-Driven, Service-Oriented, strict HOW/WHERE Lens separation, Multi-tenancy (via site scoping).
 
 **key DB schema**
-- The schema is defined in  and managed via Alembic.
-- A  column was added to the  table.
-- **CRITICAL:** The user has provided canonical  schema files. The next agent's primary task is to assess and align the current schema with these reference files. Key tables: , , , , , , , .
+- **ramp_user_roles:** . This table is central to the new authentication and authorization system.
 
 **changes in tech stack**
-- None in this session. The major change (MongoDB to PostgreSQL) was initiated in the previous session and completed in this one.
+- Added , , , and  libraries to  for authentication.
 
 **All files of reference**
-- **User Provided Canonical Docs:** , , , . These are the source of truth for all future work.
-- : Main FastAPI application. Heavily modified with new endpoints for demos, verification, and value summary.
-- : Core database logic. Refactored to fix JSONB issues and add new query methods.
-- : The entire frontend UI. Completely rewritten to build the Proof of Value and First 5 Minutes experiences.
-- : HOW lens builder. Refactored for Lens Contract compliance.
-- : New module for shared logic like confidence-to-label mapping.
-- : New service to handle the verification loop.
-- : A summary of the gap analysis between the implementation and the user's engineering documents.
-- : Product Requirements Document, updated throughout the session.
+- : Major updates to add endpoints for escalation, a full suite of authentication routes, and authenticated WebSocket endpoints. All HOW/WHERE routes now have auth dependencies.
+- : New module containing all logic for authentication, authorization dependencies, user role services, and site scoping.
+- : New module for handling WebSocket connections and broadcasting events.
+- : Modified to add state transition logic and hooks for the WebSocket broadcaster.
+- : New Alembic migration to create the  table.
+- : Updated with all completed features, including WebSockets and Authentication.
 
 **Areas that need refactoring**:
-- The entire data layer (SQLAlchemy models in , Alembic migrations) needs to be audited and potentially refactored to align with the user's canonical  schema files.
+- The file  was noted to contain legacy MongoDB syntax. It was not part of the current workstream but should be flagged for a future cleanup task to align it with the PostgreSQL/SQLAlchemy architecture.
 
 **key api endpoints**
-- : Aggregates all data for the Proof of Value view.
-- : Seeds the database and provides a rich narrative for the guided demo experience.
-- : Triggers the verification process for pending outcomes.
-- : Returns the operator's action list, now fully Lens Contract compliant.
+- : Core authentication flow.
+- : Admin-only user management.
+- : Triggers the priority escalation service.
+- : New endpoint for portfolio users to list their accessible sites.
+- : Authenticated WebSocket endpoints that require a token in the query parameters.
 
 **Critical Info for New Agent**
-- **Adhere to Canonical Docs:** The user, Brad, is highly technical and has provided authoritative reference documents for engineering, data schema, and system logic. All new work **must** align with these documents. Do not proceed with any feature work until the existing implementation is in alignment.
-- **Prioritize Alignment over Features:** The immediate priority is to perform a gap analysis of the data layer against the new  files and then implement the necessary corrections. After that, address the other alignment items: state transitions and escalation logic.
-- **Lens Contract is Mandatory:** The separation between  (operator view) and  (portfolio view) is critical. The  lens must never expose raw scores or internal calculations, only descriptive bands and labels. The helpers in  should be used for this.
+- **Authentication is Live:** All API and WebSocket requests to protected routes now require a valid JWT. Use the test credentials provided to interact with the application.
+- **Access is Role and Scope-Based:** The system strictly enforces access based on a user's role (, , ) and their assigned . Operators can only see data from their sites via the HOW lens. Portfolio users see aggregated data from their sites via the WHERE lens. Admins have unrestricted access.
+- **RLS is Active:** Direct API access to RAMP tables via Supabase's REST API is blocked for  and  roles. All backend operations work because the  user connection has RLS bypass privileges. This is the intended security model.
+- **Follow User Direction:** The user, Brad, is highly technical and gives clear, sequential instructions. Adhere strictly to the latest guidance. The current priority is to fix the multi-site bug in the WHERE lens, then implement the frontend WebSocket hook.
 
 **documents and test reports created in this job**
-- 
-- 
-- 
-- 
-- 
-- 
+-  (State Transition & Escalation Tests)
+-  (WebSocket Implementation Tests)
+-  (Authentication & RBAC Tests)
 
 **Last 10 User Messages and any pending HUMAN messages**
-1. **User**: Approved the First 5 Minutes experience.
-2. **User**: Provided canonical engineering and data schema documents, instructing the agent to align the build with them.
-3. **Agent**: Acknowledged and began reviewing the documents.
-4. **Agent**: Extracted content from multiple reference documents (, , , etc.).
-5. **Agent**: Created  and presented a summary/gap analysis to the user.
-6. **User**: Confirmed the agent should now prioritize fixing the Lens Contract violations identified in the gap analysis.
-7. **Agent**: Fixed the Lens Contract violations by creating a central confidence mapping and refactoring the API and frontend.
-8. **Agent**: Confirmed the fix with tests and updated the user.
-9. **User**: Provided *more* files, this time focusing specifically on the canonical data layer ( schema and seed files).
-10. **Agent**: Acknowledged and began reviewing the new data layer files.
+1.  **User**: Confirmed Phase 1B (securing high-risk legacy tables) was a strong result.
+2.  **User**: Instructed agent not to change the legacy  table yet and to pause the broad legacy security sweep.
+3.  **User**: Prioritized moving to Phase 2: implementing authentication, RBAC, and scoped policies.
+4.  **Assistant**: Acknowledged and asked for Supabase Auth credentials to proceed with Phase 2.
+5.  **User**: (Duplicate message) Repeated the instruction to move to Phase 2.
+6.  **Assistant**: Re-iterated that credentials were needed and showed the current not_configured status.
+7.  **User**: Provided all required Supabase credentials (, , , ).
+8.  **Assistant**: (After a series of implementation steps) Successfully verified the full authentication and RBAC system.
+9.  **User**: Provided Supabase Auth values again (likely a redundant message) and confirmed the implementation plan.
+10. **User**: Confirmed Phase 2 was complete and set the next priority: Multi-site support with scoped access, providing detailed requirements for backend enforcement and RLS integration.
 
 **Project Health Check:**
-- **Healthy:** The application is fully functional. The initial critical blocker (DB migration) is resolved. There are no broken components. The current work stream is focused on deep architectural alignment rather than fixing bugs.
+- **Healthy:** The application is robust, secure, and feature-complete for the current MVP stage. The core logic, real-time layer, and auth system are all working and tested. There are no broken components.
 
 **3rd Party Integrations**
-- **Supabase/PostgreSQL:** The primary database for the application.
+- **Supabase/PostgreSQL:** Primary database.
+- **Supabase Auth:** Integrated for authentication, using the  client library on the backend.
 
 **Testing status**
-- **Testing agent used after significant changes:** YES. The testing agent was used 4 times to validate the verification loop, proof-of-value UI, guided demo, and lens contract compliance.
+- **Testing agent used after significant changes:** YES. Used three times for major features (Escalation, WebSockets, Auth). All returned successful test reports.
 - **Troubleshoot agent used after agent stuck in loop:** NO
 - **Test files created:**
-  - 
   - 
   - 
   - 
 - **Known regressions:** None.
 
 **Credentials to test flow:**
-- The Supabase database connection string is available as the  environment variable in .
+- **Admin:**  / 
+- **Operator:**  / 
+- **Portfolio:**  / 
 
 **What agent forgot to execute**
-- The agent initially built API endpoints (, ) that did not adhere to the Lens Contract (exposing raw confidence scores). This was a gap, not a forgotten step, as the contract was only fully clarified later. The agent successfully corrected this as its last major task once the requirement was made explicit.</analysis>
+- The agent effectively executed all prioritized tasks. The legacy  file with old code was noted but correctly left alone as it was outside the scope of current work. No other missed items were identified.</analysis>

@@ -2588,7 +2588,7 @@ from ramp.websocket import (
 from ramp.websocket.broadcaster import initialize_handlers
 
 
-@app.websocket("/ws/priorities")
+@app.websocket("/api/ws/priorities")
 async def websocket_priorities(
     websocket: WebSocket,
     token: Optional[str] = Query(None)
@@ -2705,7 +2705,7 @@ async def websocket_priorities(
         await manager.disconnect(websocket)
 
 
-@app.websocket("/ws/states/{asset_id}")
+@app.websocket("/api/ws/states/{asset_id}")
 async def websocket_states(
     websocket: WebSocket, 
     asset_id: str,
@@ -2821,7 +2821,7 @@ async def websocket_states(
         await manager.disconnect(websocket)
 
 
-@app.websocket("/ws/outcomes")
+@app.websocket("/api/ws/outcomes")
 async def websocket_outcomes(
     websocket: WebSocket,
     token: Optional[str] = Query(None)
