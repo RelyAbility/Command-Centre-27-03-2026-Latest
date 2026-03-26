@@ -656,6 +656,70 @@ function AppContent() {
     autoConnect: canAccessHOW 
   });
 
+  // Intervention modal state
+  const [selectedPriority, setSelectedPriority] = useState(null);
+  const [showInterventionModal, setShowInterventionModal] = useState(false);
+  const [interventionForm, setInterventionForm] = useState({
+    type: "ADJUSTMENT",
+    description: "",
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [message, setMessage] = useState(null);
+
+  // Helper to get recommended action based on state type
+  const getRecommendedAction = (priority) => {
+    const stateType = priority.state_type?.toUpperCase() || '';
+    const stateFamily = priority.state_family?.toUpperCase() || '';
+    
+    if (stateType === 'DRIFT' && stateFamily === 'ENERGY') {
+      return 'Check equipment settings and calibration';
+    }
+    if (stateType === 'DEGRADATION') {
+      return 'Schedule maintenance inspection';
+    }
+    if (stateType === 'SPIKE') {
+      return 'Investigate immediate cause';
+    }
+    return 'Review and assess condition';
+  };
+
+  // Create intervention
+  const createIntervention = async () => {
+    if (!selectedPriority) return;
+    
+    setSubmitting(true);
+    try {
+      await axios.post(`${API}/how/interventions`, {
+        state_id: selectedPriority.state_id,
+        intervention_type: interventionForm.type,
+        description: interventionForm.description,
+        created_by: user?.email || "operator@ramp.com",
+      }, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setMessage({
+        type: "success",
+        text: "Intervention created. Baseline frozen for verification.",
+      });
+      setShowInterventionModal(false);
+      setSelectedPriority(null);
+      setInterventionForm({ type: "ADJUSTMENT", description: "" });
+      // Request resync to get updated priorities
+      requestResync();
+    } catch (e) {
+      setMessage({ type: "error", text: e.response?.data?.detail || "Failed to create intervention" });
+    }
+    setSubmitting(false);
+  };
+
+  // Clear message after 3 seconds
+  useEffect(() => {
+    if (message) {
+      const timer = setTimeout(() => setMessage(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [message]);
+
   // If not authenticated, show login option
   if (!isAuthenticated) {
     return (
@@ -792,10 +856,14 @@ function AppContent() {
               wsPriorities?.map((priority, idx) => (
                 <div
                   key={priority.priority_id || priority.id || idx}
-                  className="bg-slate-700/30 rounded-xl p-4 border border-slate-700/50"
+                  className="bg-slate-700/30 rounded-xl p-4 border border-slate-700/50 hover:border-slate-500 transition-colors cursor-pointer group"
+                  onClick={() => {
+                    setSelectedPriority(priority);
+                    setShowInterventionModal(true);
+                  }}
                   data-testid={`live-priority-${idx}`}
                 >
-                  <div className="flex items-start justify-between">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-3">
                       <span className="text-2xl font-bold text-slate-600">#{idx + 1}</span>
                       <div>
@@ -808,7 +876,7 @@ function AppContent() {
                           </span>
                         </div>
                         <div className="text-sm text-slate-400 mt-0.5">
-                          {priority.state_type || 'Active state'}
+                          {priority.drivers?.[0] || priority.state_type || 'Active state'}
                         </div>
                       </div>
                     </div>
@@ -817,10 +885,36 @@ function AppContent() {
                         ${(priority.value_at_risk_per_day || priority.economic_impact?.value_at_risk_per_day || 0).toFixed(0)}
                         <span className="text-xs text-slate-400">/day</span>
                       </div>
-                      <div className="text-xs text-slate-500">
-                        Score: {priority.priority_score || 0}
+                      <div className={`text-xs capitalize ${CONFIDENCE_LABEL_COLORS[priority.confidence_label] || CONFIDENCE_LABEL_COLORS.unknown}`}>
+                        {priority.confidence_label || 'unknown'} confidence
                       </div>
                     </div>
+                  </div>
+                  
+                  {/* Drivers/reasons */}
+                  {priority.drivers && priority.drivers.length > 1 && (
+                    <div className="text-xs text-slate-500 mb-2 pl-12">
+                      {priority.drivers.slice(1, 3).map((driver, i) => (
+                        <div key={i}>• {driver}</div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div className="flex items-center justify-between pl-12">
+                    <div className="text-sm text-slate-500 italic">
+                      → {getRecommendedAction(priority)}
+                    </div>
+                    <button
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium opacity-0 group-hover:opacity-100 transition-opacity"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedPriority(priority);
+                        setShowInterventionModal(true);
+                      }}
+                      data-testid={`take-action-${idx}`}
+                    >
+                      Take Action
+                    </button>
                   </div>
                 </div>
               ))
@@ -828,6 +922,96 @@ function AppContent() {
           </div>
         </div>
       </main>
+
+      {/* Message Toast */}
+      {message && (
+        <div
+          className={`fixed top-20 right-6 px-4 py-3 rounded-lg shadow-lg z-50 ${
+            message.type === "success" ? "bg-emerald-600" : "bg-red-600"
+          }`}
+          data-testid="message-toast"
+        >
+          {message.text}
+        </div>
+      )}
+
+      {/* Intervention Modal */}
+      {showInterventionModal && selectedPriority && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50"
+          onClick={() => setShowInterventionModal(false)}
+        >
+          <div
+            className="bg-slate-800 rounded-2xl border border-slate-700 p-6 w-full max-w-md shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+            data-testid="intervention-modal"
+          >
+            <h3 className="text-lg font-semibold mb-1">Create Intervention</h3>
+            <p className="text-sm text-slate-400 mb-4">
+              {selectedPriority.asset_name || selectedPriority.asset_id}: {selectedPriority.drivers?.[0] || selectedPriority.state_type}
+            </p>
+            
+            <div className="bg-slate-700/50 rounded-lg p-3 mb-4">
+              <div className="text-xs text-slate-400 mb-1">Recommended</div>
+              <div className="text-sm text-white">{getRecommendedAction(selectedPriority)}</div>
+            </div>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-1.5">
+                  Intervention Type
+                </label>
+                <select
+                  value={interventionForm.type}
+                  onChange={(e) =>
+                    setInterventionForm({ ...interventionForm, type: e.target.value })
+                  }
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 focus:border-emerald-500 outline-none"
+                  data-testid="intervention-type-select"
+                >
+                  <option value="ADJUSTMENT">Adjustment</option>
+                  <option value="CALIBRATION">Calibration</option>
+                  <option value="REPAIR">Repair</option>
+                  <option value="REPLACEMENT">Replacement</option>
+                  <option value="MAINTENANCE">Maintenance</option>
+                </select>
+              </div>
+              
+              <div>
+                <label className="block text-sm text-slate-400 mb-1.5">
+                  What did you do?
+                </label>
+                <textarea
+                  value={interventionForm.description}
+                  onChange={(e) =>
+                    setInterventionForm({ ...interventionForm, description: e.target.value })
+                  }
+                  className="w-full bg-slate-700 border border-slate-600 rounded-lg px-3 py-2.5 h-24 focus:border-emerald-500 outline-none resize-none"
+                  placeholder="Describe the action taken..."
+                  data-testid="intervention-description"
+                />
+              </div>
+              
+              <div className="flex gap-3 pt-2">
+                <button
+                  onClick={() => setShowInterventionModal(false)}
+                  className="flex-1 px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={createIntervention}
+                  disabled={!interventionForm.description || submitting}
+                  className="flex-1 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg font-medium transition-colors disabled:opacity-50"
+                  data-testid="submit-intervention"
+                >
+                  {submitting ? "Creating..." : "Create Intervention"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Footer */}
       <footer className="fixed bottom-0 left-0 right-0 bg-slate-800/80 backdrop-blur-sm border-t border-slate-700/50 px-6 py-2 z-30">
