@@ -53,10 +53,46 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | **Database Security (RLS)** | ✅ Completed (2026-03-23) |
 | **Authentication (Supabase)** | ✅ Completed (2026-03-23) |
 | **Role-based Access Control** | ✅ Completed (2026-03-23) |
+| **Multi-site Scoped Access** | ✅ Completed (2026-03-26) |
+| **Frontend WebSocket Hook (Zustand)** | ✅ Completed (2026-03-26) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-23 - Authentication & Role-based Access Control (Latest)
+### Date: 2026-03-26 - Frontend WebSocket Hook with Zustand (Latest)
+
+**P2: Frontend Real-time Integration**
+- Zustand store for WebSocket state management
+- Auto-connect on login with exponential backoff reconnection
+- Resync on connect/reconnect for state reconciliation
+- Heartbeat handling with automatic pong responses
+- Connection status indicators (Live/Connecting/Reconnecting/Error)
+
+**New Frontend Files:**
+```
+/app/frontend/src/stores/useRAMPStore.js     - Zustand WebSocket store
+/app/frontend/src/hooks/useRAMPWebSocket.js  - React hooks for WS
+/app/frontend/src/contexts/AuthContext.jsx   - Auth context for tokens
+/app/frontend/src/components/ConnectionStatus.jsx - Connection indicator
+/app/frontend/src/components/LoginForm.jsx   - Login form with demo creds
+```
+
+**Features:**
+- Live Value at Risk calculation from WebSocket data
+- Priority queue display with real-time updates
+- Priority distribution badges (CRITICAL/HIGH/MEDIUM/LOW)
+- Connection status in header and footer
+- Sign out functionality
+
+**Multi-site Scoped Access Verified:**
+- WHERE lens correctly filters by user's site_ids
+- Admin sees all priorities (4), Portfolio sees scoped (3)
+- HOW lens already had scoping from previous implementation
+
+**Testing:** 8/8 frontend features verified (iteration_9.json)
+
+---
+
+### Date: 2026-03-23 - Authentication & Role-based Access Control
 
 **Phase 2: Supabase Auth Integration**
 - Email/password authentication via Supabase Auth
@@ -284,9 +320,9 @@ The core RAMP MVP is now **COMPLETE** with:
 - ✅ **Role-based Access Control** — operator/portfolio/admin roles with scope
 
 ### P2 (Expansion)
+- ✅ **Frontend WebSocket hook** — Zustand store with reconnect handling (COMPLETED 2026-03-26)
+- ✅ **Multi-site support** — Scoped access via user roles (COMPLETED 2026-03-26)
 - Rule configuration admin UI
-- Multiple sites support with scoped access
-- Frontend WebSocket hook / reconnect handling
 - Asset relationships/dependencies
 - Advanced learning (baseline optimization from verified outcomes)
 - Cross-asset benchmarking
@@ -296,19 +332,17 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ## Next Tasks
 
-1. **P2: Frontend WebSocket Hook**
-   - Auto-reconnect handling
-   - Token refresh on reconnect
-   - Priority queue live updates
+1. **P2: Admin UI**
+   - User management interface
+   - Role assignment interface
+   - Site management
 
-2. **P2: Multi-site Support**
-   - Site selector in dashboard
-   - Site-level aggregation
-   - Scoped access via user roles
-
-3. **P2: Rule Configuration UI**
+2. **P2: Rule Configuration UI**
    - Admin interface for rule management
    - Verification window configuration
+
+3. **P3: Secure Remaining Legacy Tables**
+   - Enable RLS on remaining 59 non-critical tables
 
 ## Key Files
 
@@ -324,7 +358,12 @@ The core RAMP MVP is now **COMPLETE** with:
 - `/app/backend/ramp/websocket/broadcaster.py` — Event backbone integration
 
 ### Frontend
-- `/app/frontend/src/App.js` — First Five Minutes experience with guided tour
+- `/app/frontend/src/App.js` — Main app with WebSocket integration and auth
+- `/app/frontend/src/stores/useRAMPStore.js` — Zustand WebSocket state store
+- `/app/frontend/src/hooks/useRAMPWebSocket.js` — React hooks for WebSocket
+- `/app/frontend/src/contexts/AuthContext.jsx` — Auth context for token management
+- `/app/frontend/src/components/ConnectionStatus.jsx` — Connection indicator
+- `/app/frontend/src/components/LoginForm.jsx` — Login form with demo credentials
 
 ### Database
 - `/app/backend/alembic/versions/ramp_001_initial_schema.py` — Schema
@@ -336,3 +375,5 @@ The core RAMP MVP is now **COMPLETE** with:
 - `/app/test_reports/iteration_4.json` — First Five Minutes tests (11/11 backend + all UI passed)
 - `/app/test_reports/iteration_6.json` — State Transition & Escalation tests (15/16 passed)
 - `/app/test_reports/iteration_7.json` — WebSocket tests (14/14 passed)
+- `/app/test_reports/iteration_8.json` — Authentication & RBAC tests
+- `/app/test_reports/iteration_9.json` — Frontend WebSocket Hook tests (8/8 passed)
