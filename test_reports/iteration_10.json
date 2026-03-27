@@ -1,0 +1,103 @@
+{
+  "summary": "Portfolio Intelligence dual-mode testing complete. All 10 requested features verified working correctly. Backend API tests (19/19 passed) and frontend UI tests (all 4 user scenarios passed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_portfolio_intelligence.py",
+    "/app/test_reports/pytest/portfolio_intelligence_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Dual-mode IntelligenceSurface correctly detects portfolio mode via: isPortfolioMode = canAccessWHERE && !canAccessHOW",
+    "Portfolio API returns sites ranked by VaR descending (warehouse $395 > riverside $213)",
+    "Focus site correctly identifies highest VaR site with 'Focus here first' callout",
+    "Admin user correctly defaults to operator mode (has both HOW and WHERE lenses)",
+    "WebSocket integration working for operator mode with Live indicator",
+    "Traceability chain expands correctly showing State -> Priority -> Intervention -> Outcome flow"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_portfolio_intelligence.py"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19 tests passed)",
+    "frontend": "100% (4/4 user scenarios verified)"
+  },
+  "test_credentials": {
+    "admin": {
+      "email": "rampadmin@gmail.com",
+      "password": "RampAdmin2024!",
+      "lens_access": {"how": true, "where": true},
+      "expected_mode": "operator"
+    },
+    "operator": {
+      "email": "operator1@gmail.com",
+      "password": "Operator2024!",
+      "lens_access": {"how": true, "where": false},
+      "expected_mode": "operator"
+    },
+    "portfolio": {
+      "email": "portfolio1@gmail.com",
+      "password": "Portfolio2024!",
+      "lens_access": {"how": false, "where": true},
+      "expected_mode": "portfolio"
+    }
+  },
+  "seed_data_creation": "Demo seed endpoint /api/system/demo/seed-portfolio creates warehouse site with 2 priorities ($395 VaR)",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Portfolio Intelligence dual-mode fully working. Portfolio users see site cards ranked by VaR with 'Focus here first' callout. Operator/Admin users see priority cards with WebSocket Live indicator and expandable traceability chain. Total VaR across 2 sites is $608/day (warehouse $395 + riverside $213).",
+  "features_verified": {
+    "portfolio_api_structure": {
+      "status": "PASS",
+      "details": "Returns correct structure with summary, sites, outcomes, trust, focus_site"
+    },
+    "portfolio_badge": {
+      "status": "PASS",
+      "details": "Portfolio user sees 'Portfolio' badge in header"
+    },
+    "focus_site_callout": {
+      "status": "PASS",
+      "details": "Shows 'Focus here first' with Warehouse Distribution Center ($395/day)"
+    },
+    "sites_ranked_by_var": {
+      "status": "PASS",
+      "details": "Warehouse ($395) > Riverside ($213) - descending order"
+    },
+    "operator_mode": {
+      "status": "PASS",
+      "details": "Operator sees ranked priorities with WebSocket Live indicator"
+    },
+    "admin_mode": {
+      "status": "PASS",
+      "details": "Admin sees operator mode (not portfolio mode)"
+    },
+    "traceability_chain": {
+      "status": "PASS",
+      "details": "Expandable trace showing State -> Priority -> Intervention -> Outcome"
+    },
+    "trust_metrics": {
+      "status": "PASS",
+      "details": "Verification rate, actions validated, learning improvement all displayed"
+    },
+    "outcomes_aggregation": {
+      "status": "PASS",
+      "details": "Portfolio shows per-site outcomes, operator shows individual outcomes"
+    },
+    "demo_seed_endpoint": {
+      "status": "PASS",
+      "details": "/api/system/demo/seed-portfolio creates warehouse site data"
+    }
+  },
+  "var_totals": {
+    "portfolio_total": "$608/day",
+    "warehouse_site": "$395/day (2 priorities: CRITICAL $340 + MEDIUM $55)",
+    "riverside_site": "$213/day (3 priorities: HIGH $151 + LOW $19 + MEDIUM $43)"
+  }
+}

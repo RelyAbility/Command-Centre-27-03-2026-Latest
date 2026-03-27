@@ -833,6 +833,236 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
             }
         }
     }
+
+
+@system_router.post("/demo/seed-portfolio")
+async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
+    """
+    Seed additional sites for the portfolio demo view.
+    
+    Creates a Warehouse Distribution Center site with its own
+    priorities and outcomes so the portfolio view has multi-site data.
+    
+    Run AFTER first-five-minutes demo.
+    """
+    now = datetime.now(timezone.utc)
+    
+    # Check if warehouse priorities already exist (site/assets may exist without priorities)
+    result = await db.session.execute(
+        text("""
+            SELECT COUNT(*) FROM ramp_priorities p
+            JOIN ramp_assets a ON p.asset_id = a.id
+            JOIN ramp_systems s ON a.system_id = s.id
+            WHERE s.site_id = 'site-warehouse' AND p.expires_at IS NULL
+        """)
+    )
+    existing_count = result.scalar()
+    if existing_count and existing_count > 0:
+        return {"status": "already_seeded", "message": "Warehouse demo data already exists"}
+    
+    # Check if warehouse site exists
+    result = await db.session.execute(
+        text("SELECT id FROM ramp_sites WHERE id = 'site-warehouse'")
+    )
+    site_exists = result.fetchone() is not None
+    
+    # Ensure org exists
+    result = await db.session.execute(
+        text("SELECT id FROM ramp_organisations WHERE id = 'rmg-001'")
+    )
+    if not result.fetchone():
+        await db.create_organisation("Riverside Manufacturing Group", id="rmg-001")
+    
+    # Create Warehouse Distribution Center (if not exists)
+    if not site_exists:
+        await db.create_site({
+            "id": "site-warehouse",
+            "organisation_id": "rmg-001",
+            "name": "Warehouse Distribution Center",
+            "timezone": "America/Chicago",
+            "currency": "USD",
+        })
+    
+    # Create systems (if not exist)
+    for sys_data in [
+        {"id": "sys-wh-hvac", "site_id": "site-warehouse", "name": "Warehouse HVAC"},
+        {"id": "sys-wh-refrigeration", "site_id": "site-warehouse", "name": "Cold Storage Refrigeration"},
+    ]:
+        exists = await db.session.execute(text("SELECT id FROM ramp_systems WHERE id = :id"), {"id": sys_data["id"]})
+        if not exists.fetchone():
+            await db.create_system(sys_data)
+    
+    # Create assets (if not exist)
+    for asset_data in [
+        {"id": "asset-wh-rtu-01", "system_id": "sys-wh-hvac", "name": "Rooftop Unit 1", "asset_class": "RTU", "criticality_score": 60, "estimated_repair_cost": 3500},
+        {"id": "asset-wh-rtu-02", "system_id": "sys-wh-hvac", "name": "Rooftop Unit 2", "asset_class": "RTU", "criticality_score": 60, "estimated_repair_cost": 3500},
+        {"id": "asset-wh-chiller-cold", "system_id": "sys-wh-refrigeration", "name": "Cold Storage Compressor", "asset_class": "COMPRESSOR", "criticality_score": 90, "estimated_repair_cost": 12000},
+    ]:
+        exists = await db.session.execute(text("SELECT id FROM ramp_assets WHERE id = :id"), {"id": asset_data["id"]})
+        if not exists.fetchone():
+            await db.create_asset(asset_data)
+    
+    # Create baselines
+    wh_baselines = {}
+    for asset_id in ["asset-wh-rtu-01", "asset-wh-rtu-02", "asset-wh-chiller-cold"]:
+        base_val = 4.5 if "rtu" in asset_id else 18.2
+        std_dev = 0.3 if "rtu" in asset_id else 0.8
+        bl = await db.create_baseline({
+            "asset_id": asset_id,
+            "metric_type": "energy_consumption",
+            "baseline_value": base_val,
+            "baseline_min": base_val - std_dev * 2,
+            "baseline_max": base_val + std_dev * 2,
+            "unit": "kWh",
+            "sample_count": 336,
+            "standard_deviation": std_dev,
+            "confidence": 0.88,
+            "confidence_band": "HIGH",
+            "window_start": now - timedelta(days=14),
+            "window_end": now,
+        })
+        wh_baselines[asset_id] = bl
+    
+    # Create rule
+    result = await db.session.execute(
+        text("SELECT id FROM ramp_rules WHERE id = 'rule-energy-drift'")
+    )
+    if not result.fetchone():
+        await db.create_rule({
+            "id": "rule-energy-drift",
+            "name": "Energy Drift Detection",
+            "state_family": "ENERGY",
+            "state_type": "DRIFT",
+            "metric_type": "energy_consumption",
+            "condition_type": "THRESHOLD",
+            "condition_config": {"threshold_percent": 5, "min_duration_minutes": 15},
+            "enabled": True,
+        })
+    
+    # Issue 1: Cold Storage CRITICAL — 35% efficiency drop
+    cold_state = await db.create_state({
+        "asset_id": "asset-wh-chiller-cold",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": wh_baselines["asset-wh-chiller-cold"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DEGRADATION",
+        "severity_score": 8,
+        "severity_band": "CRITICAL",
+        "severity_components": {"base": 8, "duration_modifier": 2, "deviation_modifier": 3},
+        "confidence": 0.92,
+        "confidence_band": "HIGH",
+        "confidence_components": {"data_quality": 0.95, "baseline_confidence": 0.88},
+        "deviation_percent": 35.0,
+        "started_at": now - timedelta(hours=8),
+        "duration_minutes": 480,
+    })
+    await db.create_priority({
+        "state_id": cold_state["id"],
+        "asset_id": "asset-wh-chiller-cold",
+        "priority_score": 92,
+        "priority_band": "CRITICAL",
+        "priority_type": "IMMEDIATE_ACTION",
+        "drivers": [
+            "35% efficiency degradation for 8 hours",
+            "Cold storage temperature rising — product risk",
+            "Critical asset — estimated $12k repair cost"
+        ],
+        "economic_impact": {
+            "value_at_risk_per_day": 340.00,
+            "value_recoverable_per_day": 295.00,
+            "estimated_annual_impact": 124100
+        },
+        "score_components": {"severity": 90, "economic": 95, "criticality": 92}
+    })
+    
+    # Issue 2: RTU 1 — MEDIUM drift
+    rtu1_state = await db.create_state({
+        "asset_id": "asset-wh-rtu-01",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": wh_baselines["asset-wh-rtu-01"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 4,
+        "severity_band": "MEDIUM",
+        "severity_components": {"base": 4, "duration_modifier": 1, "deviation_modifier": 1},
+        "confidence": 0.78,
+        "confidence_band": "MEDIUM",
+        "confidence_components": {"data_quality": 0.80, "baseline_confidence": 0.88},
+        "deviation_percent": 15.0,
+        "started_at": now - timedelta(hours=4),
+        "duration_minutes": 240,
+    })
+    await db.create_priority({
+        "state_id": rtu1_state["id"],
+        "asset_id": "asset-wh-rtu-01",
+        "priority_score": 48,
+        "priority_band": "MEDIUM",
+        "priority_type": "SCHEDULED_ACTION",
+        "drivers": [
+            "15% energy drift on RTU 1 for 4 hours",
+            "Filter differential pressure likely elevated",
+        ],
+        "economic_impact": {
+            "value_at_risk_per_day": 55.00,
+            "value_recoverable_per_day": 42.00,
+            "estimated_annual_impact": 20075
+        },
+        "score_components": {"severity": 45, "economic": 50, "criticality": 40}
+    })
+    
+    # Completed outcome for RTU 2 (demonstrates realized savings)
+    rtu2_past_state = await db.create_state({
+        "asset_id": "asset-wh-rtu-02",
+        "rule_id": "rule-energy-drift",
+        "baseline_id": wh_baselines["asset-wh-rtu-02"]["id"],
+        "state_family": "ENERGY",
+        "state_type": "DRIFT",
+        "severity_score": 5,
+        "severity_band": "MEDIUM",
+        "severity_components": {"base": 5, "duration_modifier": 1},
+        "confidence": 0.80,
+        "confidence_band": "MEDIUM",
+        "confidence_components": {"data_quality": 0.82, "baseline_confidence": 0.88},
+        "deviation_percent": 18.0,
+        "started_at": now - timedelta(days=5),
+        "duration_minutes": 360,
+        "ended_at": now - timedelta(days=4, hours=18),
+    })
+    
+    rtu2_intervention = await db.create_intervention({
+        "state_id": rtu2_past_state["id"],
+        "asset_id": "asset-wh-rtu-02",
+        "intervention_type": "MAINTENANCE",
+        "description": "Replaced clogged air filters and cleaned condenser coils",
+        "created_by": "warehouse-ops@riverside.com",
+    })
+    
+    await db.create_outcome({
+        "intervention_id": rtu2_intervention["id"],
+        "savings_value": 0.9,
+        "savings_unit": "kWh/hr",
+        "savings_type": "ENERGY",
+        "confidence_band": "HIGH",
+        "status": "VERIFIED",
+        "verified_at": now - timedelta(days=4, hours=12),
+        "verification_window_start": now - timedelta(days=4, hours=18),
+        "verification_window_end": now - timedelta(days=4, hours=12),
+        "frozen_baseline_value": 4.5,
+        "actual_value": 3.6,
+    })
+    
+    await db.session.commit()
+    
+    return {
+        "status": "seeded",
+        "site": "Warehouse Distribution Center",
+        "assets_created": 3,
+        "active_priorities": 2,
+        "completed_outcomes": 1,
+        "message": "Portfolio demo data ready. Log in as portfolio user to see multi-site view."
+    }
+
+
 async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
     """
     Demonstrate the complete verification flow end-to-end.
@@ -1508,6 +1738,226 @@ async def get_accessible_sites_where(
         "count": len(accessible_sites),
         "scope": "all" if site_filter is None else "scoped"
     }
+
+
+@where_router.get("/portfolio/intelligence")
+async def get_portfolio_intelligence(
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_where_lens_access)
+):
+    """
+    Portfolio Intelligence Surface — site-level aggregation.
+    
+    Same structure as operator intelligence, but aggregated at site level.
+    Replaces assets with sites, actions with site priorities.
+    
+    Auth: WHERE lens access required (portfolio or admin)
+    """
+    async with db.session.begin():
+        # Get all sites accessible to user
+        site_filter = user.site_ids
+        is_admin_all = user.role.value == "admin" and site_filter is None
+        
+        # Get sites with aggregated priority data
+        if is_admin_all:
+            site_query = text("""
+                SELECT 
+                    st.id as site_id,
+                    st.name as site_name,
+                    st.currency,
+                    COUNT(p.id) as priority_count,
+                    COALESCE(SUM((p.economic_impact->>'value_at_risk_per_day')::numeric), 0) as var_per_day,
+                    COALESCE(SUM((p.economic_impact->>'value_recoverable_per_day')::numeric), 0) as recoverable_per_day,
+                    COUNT(CASE WHEN p.priority_band = 'CRITICAL' THEN 1 END) as critical_count,
+                    COUNT(CASE WHEN p.priority_band = 'HIGH' THEN 1 END) as high_count,
+                    COUNT(CASE WHEN p.priority_band = 'MEDIUM' THEN 1 END) as medium_count,
+                    COUNT(CASE WHEN p.priority_band = 'LOW' THEN 1 END) as low_count
+                FROM ramp_sites st
+                LEFT JOIN ramp_systems sys ON sys.site_id = st.id
+                LEFT JOIN ramp_assets a ON a.system_id = sys.id
+                LEFT JOIN ramp_priorities p ON p.asset_id = a.id AND p.expires_at IS NULL
+                GROUP BY st.id, st.name, st.currency
+                ORDER BY var_per_day DESC
+            """)
+            result = await db.session.execute(site_query)
+        else:
+            site_query = text("""
+                SELECT 
+                    st.id as site_id,
+                    st.name as site_name,
+                    st.currency,
+                    COUNT(p.id) as priority_count,
+                    COALESCE(SUM((p.economic_impact->>'value_at_risk_per_day')::numeric), 0) as var_per_day,
+                    COALESCE(SUM((p.economic_impact->>'value_recoverable_per_day')::numeric), 0) as recoverable_per_day,
+                    COUNT(CASE WHEN p.priority_band = 'CRITICAL' THEN 1 END) as critical_count,
+                    COUNT(CASE WHEN p.priority_band = 'HIGH' THEN 1 END) as high_count,
+                    COUNT(CASE WHEN p.priority_band = 'MEDIUM' THEN 1 END) as medium_count,
+                    COUNT(CASE WHEN p.priority_band = 'LOW' THEN 1 END) as low_count
+                FROM ramp_sites st
+                LEFT JOIN ramp_systems sys ON sys.site_id = st.id
+                LEFT JOIN ramp_assets a ON a.system_id = sys.id
+                LEFT JOIN ramp_priorities p ON p.asset_id = a.id AND p.expires_at IS NULL
+                WHERE st.id = ANY(:site_ids)
+                GROUP BY st.id, st.name, st.currency
+                ORDER BY var_per_day DESC
+            """)
+            result = await db.session.execute(site_query, {"site_ids": site_filter or []})
+        
+        sites = []
+        total_var = 0.0
+        total_recoverable = 0.0
+        total_priorities = 0
+        focus_site = None
+        
+        for row in result.fetchall():
+            site_var = float(row[4])
+            site_recoverable = float(row[5])
+            site_data = {
+                "site_id": row[0],
+                "site_name": row[1],
+                "currency": row[2] or "USD",
+                "priority_count": row[3],
+                "var_per_day": round(site_var, 2),
+                "recoverable_per_day": round(site_recoverable, 2),
+                "distribution": {
+                    "CRITICAL": row[6],
+                    "HIGH": row[7],
+                    "MEDIUM": row[8],
+                    "LOW": row[9],
+                },
+                "top_priority_band": (
+                    "CRITICAL" if row[6] > 0 else
+                    "HIGH" if row[7] > 0 else
+                    "MEDIUM" if row[8] > 0 else
+                    "LOW" if row[9] > 0 else None
+                ),
+            }
+            
+            total_var += site_var
+            total_recoverable += site_recoverable
+            total_priorities += row[3]
+            
+            # First site (highest VAR) is focus site
+            if focus_site is None and site_var > 0:
+                focus_site = {
+                    "site_id": row[0],
+                    "site_name": row[1],
+                    "var_per_day": round(site_var, 2),
+                    "reason": "Highest value at risk across portfolio"
+                }
+            
+            sites.append(site_data)
+        
+        # Get site-level outcomes
+        if is_admin_all:
+            outcomes_query = text("""
+                SELECT 
+                    st.id as site_id,
+                    st.name as site_name,
+                    COUNT(CASE WHEN o.status = 'VERIFIED' THEN 1 END) as verified_count,
+                    COALESCE(SUM(CASE WHEN o.status = 'VERIFIED' THEN o.savings_value ELSE 0 END), 0) as total_savings
+                FROM ramp_sites st
+                LEFT JOIN ramp_systems sys ON sys.site_id = st.id
+                LEFT JOIN ramp_assets a ON a.system_id = sys.id
+                LEFT JOIN ramp_interventions i ON i.asset_id = a.id
+                LEFT JOIN ramp_outcomes o ON o.intervention_id = i.id
+                GROUP BY st.id, st.name
+                HAVING COUNT(o.id) > 0
+                ORDER BY total_savings DESC
+            """)
+            outcomes_result = await db.session.execute(outcomes_query)
+        else:
+            outcomes_query = text("""
+                SELECT 
+                    st.id as site_id,
+                    st.name as site_name,
+                    COUNT(CASE WHEN o.status = 'VERIFIED' THEN 1 END) as verified_count,
+                    COALESCE(SUM(CASE WHEN o.status = 'VERIFIED' THEN o.savings_value ELSE 0 END), 0) as total_savings
+                FROM ramp_sites st
+                LEFT JOIN ramp_systems sys ON sys.site_id = st.id
+                LEFT JOIN ramp_assets a ON a.system_id = sys.id
+                LEFT JOIN ramp_interventions i ON i.asset_id = a.id
+                LEFT JOIN ramp_outcomes o ON o.intervention_id = i.id
+                WHERE st.id = ANY(:site_ids)
+                GROUP BY st.id, st.name
+                HAVING COUNT(o.id) > 0
+                ORDER BY total_savings DESC
+            """)
+            outcomes_result = await db.session.execute(outcomes_query, {"site_ids": site_filter or []})
+        
+        site_outcomes = []
+        portfolio_total_savings = 0.0
+        portfolio_verified_count = 0
+        for row in outcomes_result.fetchall():
+            savings = float(row[3])
+            site_outcomes.append({
+                "site_id": row[0],
+                "site_name": row[1],
+                "verified_count": row[2],
+                "total_savings": round(savings, 2),
+            })
+            portfolio_total_savings += savings
+            portfolio_verified_count += row[2]
+        
+        # Get trust metrics (same as intelligence/trust but portfolio-scoped)
+        if is_admin_all:
+            trust_query = text("""
+                SELECT 
+                    (SELECT COUNT(*) FROM ramp_interventions) as total_interventions,
+                    (SELECT COUNT(*) FROM ramp_outcomes WHERE status = 'VERIFIED') as verified_outcomes,
+                    (SELECT COUNT(*) FROM ramp_outcomes WHERE status = 'PENDING') as pending_outcomes
+            """)
+            trust_result = await db.session.execute(trust_query)
+        else:
+            trust_query = text("""
+                SELECT 
+                    (SELECT COUNT(*) FROM ramp_interventions i 
+                     JOIN ramp_assets a ON i.asset_id = a.id 
+                     JOIN ramp_systems s ON a.system_id = s.id 
+                     WHERE s.site_id = ANY(:site_ids)) as total_interventions,
+                    (SELECT COUNT(*) FROM ramp_outcomes o 
+                     JOIN ramp_interventions i ON o.intervention_id = i.id
+                     JOIN ramp_assets a ON i.asset_id = a.id 
+                     JOIN ramp_systems s ON a.system_id = s.id 
+                     WHERE o.status = 'VERIFIED' AND s.site_id = ANY(:site_ids)) as verified_outcomes,
+                    (SELECT COUNT(*) FROM ramp_outcomes o 
+                     JOIN ramp_interventions i ON o.intervention_id = i.id
+                     JOIN ramp_assets a ON i.asset_id = a.id 
+                     JOIN ramp_systems s ON a.system_id = s.id 
+                     WHERE o.status = 'PENDING' AND s.site_id = ANY(:site_ids)) as pending_outcomes
+            """)
+            trust_result = await db.session.execute(trust_query, {"site_ids": site_filter or []})
+        
+        trust_row = trust_result.fetchone()
+        total_interventions = trust_row[0] if trust_row else 0
+        verified_outcomes = trust_row[1] if trust_row else 0
+        verification_rate = (verified_outcomes / total_interventions) if total_interventions > 0 else 0
+        learning_improvement = min(0.85, 0.5 + (verified_outcomes * 0.1)) if verified_outcomes > 0 else 0
+        
+        return {
+            "mode": "portfolio",
+            "summary": {
+                "total_var": round(total_var, 2),
+                "total_recoverable": round(total_recoverable, 2),
+                "site_count": len(sites),
+                "priority_count": total_priorities,
+                "currency": "USD",
+            },
+            "sites": sites,
+            "outcomes": {
+                "total_savings": round(portfolio_total_savings, 2),
+                "verified_count": portfolio_verified_count,
+                "site_outcomes": site_outcomes,
+            },
+            "trust": {
+                "verification_rate": round(verification_rate, 2),
+                "actions_validated": verified_outcomes,
+                "total_actions": total_interventions,
+                "learning_improvement": round(learning_improvement, 2),
+                "pending_verifications": trust_row[2] if trust_row else 0,
+            },
+            "focus_site": focus_site,
+        }
 
 
 # =============================================================================
