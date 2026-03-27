@@ -167,13 +167,13 @@ async def seed_database(db: RAMPDatabase = Depends(get_db)):
         }
     
     # Create organisation
-    org = await db.create_organisation("Demo Manufacturing Corp", id="demo-org-001")
+    org = await db.create_organisation("Industrial Refrigeration Group", id="demo-org-001")
     
     # Create site
     site = await db.create_site({
         "id": "demo-site-001",
         "organisation_id": "demo-org-001",
-        "name": "Riverside Manufacturing",
+        "name": "Dairy Processing Plant — Refrigeration",
         "timezone": "America/Chicago",
         "currency": "USD",
         "energy_tariff": 0.11,
@@ -186,14 +186,14 @@ async def seed_database(db: RAMPDatabase = Depends(get_db)):
     await db.create_system({
         "id": "sys-compressed-air",
         "site_id": "demo-site-001",
-        "name": "Compressed Air System"
+        "name": "Ammonia Refrigeration System"
     })
     
     # Create assets
     await db.create_asset({
         "id": "asset-comp-001",
         "system_id": "sys-compressed-air",
-        "name": "Main Compressor A",
+        "name": "Screw Compressor #1",
         "asset_class": "COMPRESSOR",
         "criticality_score": 85,
         "estimated_repair_cost": 6000
@@ -202,8 +202,8 @@ async def seed_database(db: RAMPDatabase = Depends(get_db)):
     # Create rules
     await db.create_rule({
         "id": "rule-energy-drift",
-        "name": "Energy Drift Detection",
-        "description": "Detect sustained energy consumption above baseline",
+        "name": "Compressor Efficiency Drift",
+        "description": "Detect sustained compressor efficiency degradation above baseline",
         "state_family": "ENERGY",
         "state_type": "DRIFT",
         "metric_type": "energy_intensity",
@@ -319,7 +319,7 @@ async def simulate_drift(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "HIGH",
         "priority_type": "OPERATIONAL",
         "drivers": [
-            f"{drift_deviation:.0f}% energy drift on Main Compressor A",
+            f"{drift_deviation:.0f}% compressor efficiency degradation on Screw Compressor #1",
             f"Estimated ${var_per_day:.0f}/day at risk",
             "Critical asset (HIGH criticality)",
             "Active for 2.0 hours"
@@ -411,12 +411,12 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
     # STEP 1: ESTABLISH CREDIBILITY - Real Site with Multiple Assets
     # =========================================================================
     
-    await db.create_organisation("Riverside Manufacturing Group", id="rmg-001")
+    await db.create_organisation("Industrial Refrigeration Group", id="rmg-001")
     
     await db.create_site({
         "id": "site-riverside",
         "organisation_id": "rmg-001",
-        "name": "Riverside Plant - Building A",
+        "name": "Dairy Processing Plant — Refrigeration",
         "timezone": "America/Chicago",
         "currency": "USD",
         "energy_tariff": 0.11,
@@ -426,25 +426,25 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "site_category": "MANUFACTURING"
     })
     
-    # Create realistic systems
-    await db.create_system({"id": "sys-hvac", "site_id": "site-riverside", "name": "HVAC System"})
-    await db.create_system({"id": "sys-compressed-air", "site_id": "site-riverside", "name": "Compressed Air"})
-    await db.create_system({"id": "sys-cooling", "site_id": "site-riverside", "name": "Process Cooling"})
+    # Create refrigeration systems
+    await db.create_system({"id": "sys-hvac", "site_id": "site-riverside", "name": "Ammonia Refrigeration System"})
+    await db.create_system({"id": "sys-compressed-air", "site_id": "site-riverside", "name": "Low-Temperature Cooling System"})
+    await db.create_system({"id": "sys-cooling", "site_id": "site-riverside", "name": "Glycol Circulation System"})
     
-    # Create multiple realistic assets
+    # Create refrigeration assets
     assets = [
         {
             "id": "asset-ahu-01",
             "system_id": "sys-hvac",
-            "name": "Air Handling Unit 1",
-            "asset_class": "HVAC",
+            "name": "Evaporator Bank 1",
+            "asset_class": "EVAPORATOR",
             "criticality_score": 75,
             "estimated_repair_cost": 4500
         },
         {
             "id": "asset-comp-main",
             "system_id": "sys-compressed-air",
-            "name": "Main Air Compressor",
+            "name": "Screw Compressor #1",
             "asset_class": "COMPRESSOR",
             "criticality_score": 90,
             "estimated_repair_cost": 8500
@@ -452,15 +452,15 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         {
             "id": "asset-chiller-01",
             "system_id": "sys-cooling",
-            "name": "Process Chiller 1",
-            "asset_class": "CHILLER",
+            "name": "Condenser Unit 1",
+            "asset_class": "CONDENSER",
             "criticality_score": 85,
             "estimated_repair_cost": 12000
         },
         {
             "id": "asset-vfd-pump",
             "system_id": "sys-cooling",
-            "name": "VFD Coolant Pump",
+            "name": "Glycol Circulation Pump",
             "asset_class": "PUMP",
             "criticality_score": 60,
             "estimated_repair_cost": 2200
@@ -474,8 +474,8 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
     rules = [
         {
             "id": "rule-energy-drift",
-            "name": "Energy Consumption Drift",
-            "description": "Detects sustained energy consumption above baseline",
+            "name": "Compressor Efficiency Drift",
+            "description": "Detects sustained compressor efficiency degradation above baseline",
             "state_family": "ENERGY",
             "state_type": "DRIFT",
             "metric_type": "energy_intensity",
@@ -487,8 +487,8 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         },
         {
             "id": "rule-efficiency-drop",
-            "name": "Efficiency Degradation",
-            "description": "Detects drop in operational efficiency",
+            "name": "Refrigeration Load Imbalance",
+            "description": "Detects refrigeration load imbalance or degradation",
             "state_family": "OPERATIONAL",
             "state_type": "DEGRADATION",
             "metric_type": "efficiency",
@@ -565,8 +565,8 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "asset_id": "asset-vfd-pump",
         "frozen_baseline_id": baselines["asset-vfd-pump"]["id"],
         "intervention_type": "CALIBRATION",
-        "description": "Recalibrated VFD frequency setpoints. Found drift in speed controller.",
-        "created_by": "mike.johnson@riverside.com"
+        "description": "Recalibrated glycol pump frequency setpoints. Found drift in circulation speed controller.",
+        "created_by": "ops-tech@dairyprocessing.com"
     })
     
     # Set completed_at in the past
@@ -585,13 +585,13 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "frozen_baseline_value": 12.5,
         "actual_value": 11.2,
         "savings_value": 1.3,
-        "savings_unit": "kWh",
+        "savings_unit": "kWh/hr",
         "savings_type": "energy",
         "confidence": 0.91,
         "confidence_band": "HIGH",
         "status": "VERIFIED",
         "verified_at": now - timedelta(days=2, hours=20),
-        "verification_notes": "Verified with 18 samples over 1h window. Energy consumption returned to baseline."
+        "verification_notes": "Verified with 18 samples over 1h window. Glycol circulation energy returned to baseline."
     })
     
     # 3d. Update learning record
@@ -613,9 +613,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "entity_id": past_intervention["id"],
         "payload": {
             "savings_value": 1.3,
-            "savings_unit": "kWh",
+            "savings_unit": "kWh/hr",
             "confidence": 0.91,
-            "message": "VFD pump calibration verified - 1.3 kWh/hour savings confirmed"
+            "message": "Glycol pump calibration verified — 1.3 kWh/hr reduction in compressor load confirmed"
         }
     })
     
@@ -625,7 +625,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
     
     current_issues = []
     
-    # Issue 1: Main Compressor - HIGH priority energy drift (22% above baseline)
+    # Issue 1: Screw Compressor - HIGH priority compressor efficiency degradation (22% above baseline)
     comp_state = await db.create_state({
         "asset_id": "asset-comp-main",
         "rule_id": "rule-energy-drift",
@@ -650,9 +650,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "HIGH",
         "priority_type": "OPERATIONAL",
         "drivers": [
-            "22% energy drift sustained for 3 hours",
-            "Critical production asset (90 criticality)",
-            "Estimated $12.60/hr excess energy cost"
+            "22% compressor efficiency degradation sustained for 3 hours",
+            "Critical refrigeration asset (90 criticality)",
+            "Estimated $12.60/hr excess refrigeration energy cost"
         ],
         "economic_impact": {
             "value_at_risk_per_day": 151.20,
@@ -661,9 +661,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         },
         "score_components": {"severity": 45, "economic": 25, "criticality": 30}
     })
-    current_issues.append({"asset": "Main Air Compressor", "state": comp_state, "priority": comp_priority})
+    current_issues.append({"asset": "Screw Compressor #1", "state": comp_state, "priority": comp_priority})
     
-    # Issue 2: AHU - MEDIUM priority efficiency drop (12% below baseline)
+    # Issue 2: Evaporator Bank - MEDIUM priority refrigeration load imbalance (12% below baseline)
     ahu_state = await db.create_state({
         "asset_id": "asset-ahu-01",
         "rule_id": "rule-efficiency-drop",
@@ -688,9 +688,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "MEDIUM",
         "priority_type": "OPERATIONAL",
         "drivers": [
-            "12% efficiency drop over 6 hours",
-            "Filter differential pressure increasing",
-            "May indicate clogged filters"
+            "12% refrigeration load imbalance over 6 hours",
+            "Evaporator coil differential pressure increasing",
+            "May indicate ice buildup or restricted airflow"
         ],
         "economic_impact": {
             "value_at_risk_per_day": 42.50,
@@ -699,9 +699,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         },
         "score_components": {"severity": 35, "economic": 20, "criticality": 25}
     })
-    current_issues.append({"asset": "Air Handling Unit 1", "state": ahu_state, "priority": ahu_priority})
+    current_issues.append({"asset": "Evaporator Bank 1", "state": ahu_state, "priority": ahu_priority})
     
-    # Issue 3: Chiller - LOW priority slight drift (8% above baseline, recent)
+    # Issue 3: Condenser Unit - LOW priority slight cooling drift (8% above baseline, recent)
     chiller_state = await db.create_state({
         "asset_id": "asset-chiller-01",
         "rule_id": "rule-energy-drift",
@@ -726,9 +726,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "LOW",
         "priority_type": "MONITORING",
         "drivers": [
-            "8% energy drift detected 45 minutes ago",
-            "Below action threshold - monitoring",
-            "May self-correct with load changes"
+            "8% cooling drift detected 45 minutes ago",
+            "Elevated condenser load — monitoring",
+            "May self-correct with refrigeration load changes"
         ],
         "economic_impact": {
             "value_at_risk_per_day": 18.90,
@@ -737,7 +737,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         },
         "score_components": {"severity": 20, "economic": 15, "criticality": 20}
     })
-    current_issues.append({"asset": "Process Chiller 1", "state": chiller_state, "priority": chiller_priority})
+    current_issues.append({"asset": "Condenser Unit 1", "state": chiller_state, "priority": chiller_priority})
     
     # =========================================================================
     # STEP 5: CONTINUOUS MONITORING NARRATIVE
@@ -755,7 +755,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "event_type": "state_detected",
         "entity_type": "state",
         "entity_id": comp_state["id"],
-        "payload": {"asset": "Main Air Compressor", "deviation": "22%", "action": "Priority created"}
+        "payload": {"asset": "Screw Compressor #1", "deviation": "22%", "action": "Priority created"}
     })
     
     # Calculate totals
@@ -769,17 +769,17 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "status": "ready",
         "narrative": {
             "site": {
-                "name": "Riverside Plant - Building A",
+                "name": "Dairy Processing Plant — Refrigeration",
                 "assets_monitored": 4,
-                "systems": ["HVAC", "Compressed Air", "Process Cooling"],
+                "systems": ["Ammonia Refrigeration", "Low-Temperature Cooling", "Glycol Circulation"],
                 "baseline_data_days": 14,
                 "context": "All assets have established baselines from 2 weeks of normal operation."
             },
             "completed_loop": {
-                "asset": "VFD Coolant Pump",
-                "issue": "18.5% energy drift detected 3 days ago",
-                "action": "Calibration - recalibrated VFD frequency setpoints",
-                "outcome": "Verified +1.3 kWh/hr savings with 91% confidence",
+                "asset": "Glycol Circulation Pump",
+                "issue": "18.5% cooling drift detected 3 days ago",
+                "action": "Calibration — recalibrated glycol pump frequency setpoints",
+                "outcome": "Verified +1.3 kWh/hr reduction in compressor load with 91% confidence",
                 "time_to_verify": "1 hour",
                 "message": "This demonstrates the full RAMP loop: detection → action → verification → learning."
             },
@@ -788,40 +788,40 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                 "currency": "USD",
                 "active_issues": 3,
                 "breakdown": [
-                    {"asset": "Main Air Compressor", "var": 151.20, "band": "HIGH"},
-                    {"asset": "Air Handling Unit 1", "var": 42.50, "band": "MEDIUM"},
-                    {"asset": "Process Chiller 1", "var": 18.90, "band": "LOW"}
+                    {"asset": "Screw Compressor #1", "var": 151.20, "band": "HIGH"},
+                    {"asset": "Evaporator Bank 1", "var": 42.50, "band": "MEDIUM"},
+                    {"asset": "Condenser Unit 1", "var": 18.90, "band": "LOW"}
                 ]
             },
             "priority_actions": [
                 {
                     "rank": 1,
-                    "asset": "Main Air Compressor",
-                    "issue": "22% energy drift for 3 hours",
+                    "asset": "Screw Compressor #1",
+                    "issue": "22% compressor efficiency degradation for 3 hours",
                     "band": "HIGH",
                     "confidence_label": "strong",
                     "var_per_day": 151.20,
-                    "recommended_action": "Inspect inlet filter and check for leaks in downstream piping",
+                    "recommended_action": "Inspect suction strainer and check for refrigerant charge deviation",
                     "state_id": comp_state["id"]
                 },
                 {
                     "rank": 2,
-                    "asset": "Air Handling Unit 1",
-                    "issue": "12% efficiency drop for 6 hours",
+                    "asset": "Evaporator Bank 1",
+                    "issue": "12% refrigeration load imbalance for 6 hours",
                     "band": "MEDIUM",
                     "confidence_label": "moderate",
                     "var_per_day": 42.50,
-                    "recommended_action": "Check filter differential pressure and consider filter replacement",
+                    "recommended_action": "Check evaporator coil for ice buildup and verify defrost cycle operation",
                     "state_id": ahu_state["id"]
                 },
                 {
                     "rank": 3,
-                    "asset": "Process Chiller 1",
-                    "issue": "8% energy drift for 45 minutes",
+                    "asset": "Condenser Unit 1",
+                    "issue": "8% cooling drift for 45 minutes",
                     "band": "LOW",
                     "confidence_label": "moderate",
                     "var_per_day": 18.90,
-                    "recommended_action": "Monitor - may self-correct with load changes",
+                    "recommended_action": "Monitor — may self-correct with refrigeration load changes",
                     "state_id": chiller_state["id"]
                 }
             ],
@@ -841,7 +841,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
     """
     Seed additional sites for the portfolio demo view.
     
-    Creates a Warehouse Distribution Center site with its own
+    Creates a Food Processing Facility site with its own
     priorities and outcomes so the portfolio view has multi-site data.
     
     Run AFTER first-five-minutes demo.
@@ -859,7 +859,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
     )
     existing_count = result.scalar()
     if existing_count and existing_count > 0:
-        return {"status": "already_seeded", "message": "Warehouse demo data already exists"}
+        return {"status": "already_seeded", "message": "Food Processing Facility demo data already exists"}
     
     # Check if warehouse site exists
     result = await db.session.execute(
@@ -872,22 +872,22 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         text("SELECT id FROM ramp_organisations WHERE id = 'rmg-001'")
     )
     if not result.fetchone():
-        await db.create_organisation("Riverside Manufacturing Group", id="rmg-001")
+        await db.create_organisation("Industrial Refrigeration Group", id="rmg-001")
     
-    # Create Warehouse Distribution Center (if not exists)
+    # Create Food Processing Facility (if not exists)
     if not site_exists:
         await db.create_site({
             "id": "site-warehouse",
             "organisation_id": "rmg-001",
-            "name": "Warehouse Distribution Center",
+            "name": "Food Processing Facility — Cold Storage",
             "timezone": "America/Chicago",
             "currency": "USD",
         })
     
     # Create systems (if not exist)
     for sys_data in [
-        {"id": "sys-wh-hvac", "site_id": "site-warehouse", "name": "Warehouse HVAC"},
-        {"id": "sys-wh-refrigeration", "site_id": "site-warehouse", "name": "Cold Storage Refrigeration"},
+        {"id": "sys-wh-hvac", "site_id": "site-warehouse", "name": "Cold Storage Refrigeration"},
+        {"id": "sys-wh-refrigeration", "site_id": "site-warehouse", "name": "Process Cooling System"},
     ]:
         exists = await db.session.execute(text("SELECT id FROM ramp_systems WHERE id = :id"), {"id": sys_data["id"]})
         if not exists.fetchone():
@@ -895,9 +895,9 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
     
     # Create assets (if not exist)
     for asset_data in [
-        {"id": "asset-wh-rtu-01", "system_id": "sys-wh-hvac", "name": "Rooftop Unit 1", "asset_class": "RTU", "criticality_score": 60, "estimated_repair_cost": 3500},
-        {"id": "asset-wh-rtu-02", "system_id": "sys-wh-hvac", "name": "Rooftop Unit 2", "asset_class": "RTU", "criticality_score": 60, "estimated_repair_cost": 3500},
-        {"id": "asset-wh-chiller-cold", "system_id": "sys-wh-refrigeration", "name": "Cold Storage Compressor", "asset_class": "COMPRESSOR", "criticality_score": 90, "estimated_repair_cost": 12000},
+        {"id": "asset-wh-rtu-01", "system_id": "sys-wh-hvac", "name": "Cold Room Evaporator", "asset_class": "EVAPORATOR", "criticality_score": 60, "estimated_repair_cost": 3500},
+        {"id": "asset-wh-rtu-02", "system_id": "sys-wh-hvac", "name": "Blast Freezer Evaporator", "asset_class": "EVAPORATOR", "criticality_score": 60, "estimated_repair_cost": 3500},
+        {"id": "asset-wh-chiller-cold", "system_id": "sys-wh-refrigeration", "name": "Screw Compressor #2", "asset_class": "COMPRESSOR", "criticality_score": 90, "estimated_repair_cost": 12000},
     ]:
         exists = await db.session.execute(text("SELECT id FROM ramp_assets WHERE id = :id"), {"id": asset_data["id"]})
         if not exists.fetchone():
@@ -940,7 +940,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
             "enabled": True,
         })
     
-    # Issue 1: Cold Storage CRITICAL — 35% efficiency drop
+    # Issue 1: Screw Compressor CRITICAL — 35% efficiency degradation
     cold_state = await db.create_state({
         "asset_id": "asset-wh-chiller-cold",
         "rule_id": "rule-energy-drift",
@@ -964,8 +964,8 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "CRITICAL",
         "priority_type": "IMMEDIATE_ACTION",
         "drivers": [
-            "35% efficiency degradation for 8 hours",
-            "Cold storage temperature rising — product risk",
+            "35% compressor efficiency degradation for 8 hours",
+            "Cold storage temperature rising — product integrity risk",
             "Critical asset — estimated $12k repair cost"
         ],
         "economic_impact": {
@@ -976,7 +976,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         "score_components": {"severity": 90, "economic": 95, "criticality": 92}
     })
     
-    # Issue 2: RTU 1 — MEDIUM drift
+    # Issue 2: Cold Room Evaporator — MEDIUM drift
     rtu1_state = await db.create_state({
         "asset_id": "asset-wh-rtu-01",
         "rule_id": "rule-energy-drift",
@@ -1000,8 +1000,8 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "MEDIUM",
         "priority_type": "SCHEDULED_ACTION",
         "drivers": [
-            "15% energy drift on RTU 1 for 4 hours",
-            "Filter differential pressure likely elevated",
+            "15% cooling drift on Cold Room Evaporator for 4 hours",
+            "Evaporator coil pressure differential elevated",
         ],
         "economic_impact": {
             "value_at_risk_per_day": 55.00,
@@ -1011,7 +1011,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         "score_components": {"severity": 45, "economic": 50, "criticality": 40}
     })
     
-    # Completed outcome for RTU 2 (demonstrates realized savings)
+    # Completed outcome for Blast Freezer Evaporator (demonstrates realized savings)
     rtu2_past_state = await db.create_state({
         "asset_id": "asset-wh-rtu-02",
         "rule_id": "rule-energy-drift",
@@ -1034,8 +1034,8 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
         "state_id": rtu2_past_state["id"],
         "asset_id": "asset-wh-rtu-02",
         "intervention_type": "MAINTENANCE",
-        "description": "Replaced clogged air filters and cleaned condenser coils",
-        "created_by": "warehouse-ops@riverside.com",
+        "description": "Defrosted evaporator coils and recalibrated expansion valve",
+        "created_by": "ops-tech@foodprocessing.com",
     })
     
     await db.create_outcome({
@@ -1056,7 +1056,7 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
     
     return {
         "status": "seeded",
-        "site": "Warehouse Distribution Center",
+        "site": "Food Processing Facility — Cold Storage",
         "assets_created": 3,
         "active_priorities": 2,
         "completed_outcomes": 1,
@@ -1101,11 +1101,11 @@ async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
     await db.session.commit()
     
     # 2. Seed
-    await db.create_organisation("Demo Manufacturing Corp", id="demo-org-001")
+    await db.create_organisation("Industrial Refrigeration Group", id="demo-org-001")
     await db.create_site({
         "id": "demo-site-001",
         "organisation_id": "demo-org-001",
-        "name": "Riverside Manufacturing",
+        "name": "Processing Plant — Cooling Systems",
         "timezone": "America/Chicago",
         "currency": "USD",
         "energy_tariff": 0.11,
@@ -1116,19 +1116,19 @@ async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
     await db.create_system({
         "id": "sys-compressed-air",
         "site_id": "demo-site-001",
-        "name": "Compressed Air System"
+        "name": "Ammonia Refrigeration System"
     })
     await db.create_asset({
         "id": "asset-comp-001",
         "system_id": "sys-compressed-air",
-        "name": "Main Compressor A",
+        "name": "Screw Compressor #1",
         "asset_class": "COMPRESSOR",
         "criticality_score": 85,
         "estimated_repair_cost": 6000
     })
     await db.create_rule({
         "id": "rule-energy-drift",
-        "name": "Energy Drift Detection",
+        "name": "Compressor Efficiency Drift",
         "state_family": "ENERGY",
         "state_type": "DRIFT",
         "metric_type": "energy_intensity",
@@ -1187,7 +1187,7 @@ async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
         "priority_score": 62.5,
         "priority_band": "HIGH",
         "priority_type": "OPERATIONAL",
-        "drivers": [f"{drift_deviation:.0f}% energy drift", "Critical asset"],
+        "drivers": [f"{drift_deviation:.0f}% compressor efficiency degradation", "Critical refrigeration asset"],
         "economic_impact": {"value_at_risk_per_day": 25.25},
         "score_components": {"severity": 50, "economic": 20, "risk": 30}
     })
@@ -1200,7 +1200,7 @@ async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
         "asset_id": asset_id,
         "frozen_baseline_id": frozen_baseline["id"] if frozen_baseline else baseline["id"],
         "intervention_type": "CALIBRATION",  # Use CALIBRATION for shorter window (1h)
-        "description": "Recalibrated compressor pressure settings",
+        "description": "Recalibrated compressor discharge pressure setpoints",
         "created_by": "demo@example.com"
     })
     
