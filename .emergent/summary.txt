@@ -1,159 +1,140 @@
-<analysis>**original_problem_statement:**
-The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. The project's core is the SBM loop: . After migrating from MongoDB to PostgreSQL, the project has evolved to include a Proof of Value frontend, a guided demo, and now a focus on implementing robust architectural features like real-time updates, security hardening, and full authentication with role-based and multi-site scoped access, all while aligning with canonical engineering documents.
-
+<analysis>**original_problem_statement:** 
+The user, Brad, wants to build RAMP, a state-based, event-driven industrial intelligence platform. 
 **PRODUCT REQUIREMENTS:**
-- Implement the core RAMP services (Ingestion, Baseline, State, Priority, Intervention, Verification, Learning) on PostgreSQL.
-- Enforce a strict API and payload separation between the  (operator) and  (portfolio) lenses.
-- The system must be event-driven with an immutable event log.
-- Implement real-time system behavior using WebSockets.
-- Secure the application by implementing authentication, role-based access control (RBAC), and Row-Level Security (RLS).
-- Scope data access based on a user's role and their assigned sites.
+- *Strategic Pivot (Rockwell Automation Alignment)*: The priority is no longer broad feature building. The focus is exclusively on demonstrating the intelligence layer that connects operational signals to economic outcomes to support a pilot demo.
+- Create a single-page Industrial Intelligence Surface that answers key business questions in under 60 seconds (Where is value lost? What to do? What is recovered? Is the system working?).
+- Implement inline Condition → Outcome Traceability (State -> Priority -> Intervention -> Outcome).
+- Build a Portfolio View (Multi-Site Intelligence) as the default landing page for portfolio users.
+- Use Zustand for frontend WebSocket state management.
 
 **User's preferred language**: English
+*(INSTRUCT next agent to respond in English only)*
 
-**what currently exists?**
-A full-stack application with a FastAPI backend and React frontend using a PostgreSQL database. The application is feature-rich and includes:
-- The complete SBM core loop ( -> ).
-- State transition tracking and priority escalation logic.
-- A real-time WebSocket layer for live updates on priorities and states.
-- A comprehensive security model with Supabase Auth integration for email/password login.
-- A  table that defines user roles (, , ) and their access scope (organisation and site IDs).
-- Role-based access control (RBAC) protecting all API and WebSocket endpoints.
-- Row-Level Security (RLS) enabled on all 31 critical RAMP and legacy tables, blocking direct API access while allowing the backend to function via a privileged  role.
-- A multi-site data structure with test users assigned to different sites.
+**what currently exists?** 
+A full-stack RAMP application (React, FastAPI, PostgreSQL/Supabase) featuring the core SBM (Signal-Baseline-Metric) loop, JWT authentication, RBAC, and Row-Level Security. A real-time WebSocket layer powered by Zustand has just been integrated into the frontend. A new, single-page  dashboard has been deployed to serve as the primary demo view, showing Live Value at Risk (VaR), an active priority action queue, verified outcomes, system trust indicators, and inline traceability.
 
-**Last working item**:
--   **Last item agent was working:** The agent was implementing and testing multi-site scoped access. This involved creating a new site, assigning users to specific sites, and updating backend API endpoints (HOW and WHERE lenses) to filter data based on the authenticated user's assigned site(s). The agent successfully implemented scoped access for the HOW lens and for listing a user's accessible sites.
--   **Status:** USER VERIFICATION PENDING
--   **Agent Testing Done:** Y
--   **Which testing method agent to use?** backend testing agent
--   **User Testing Done:** N
+**Last working item**: 
+- Last item agent was working: Building the Industrial Intelligence Surface and inline traceability feature for the Rockwell demo pivot. The backend endpoints and the React component were successfully created, integrated, and verified visually.
+- Status: COMPLETED
+- Agent Testing Done: Y
+- Which testing method agent to use? Frontend testing agent
+- User Testing Done: N
 
-**All Pending/In progress Issue list**:
--   **Issue 1:** (P0) WHERE lens summary does not respect multi-site scope.
-    -   **Attempted fixes:** None. The issue was just discovered during testing.
-    -   **Next debug checklist:**
-        1.  Review the  method in .
-        2.  Inspect how it queries for priorities and aggregates data. It is likely not applying the  filter from the authenticated user context.
-        3.  Modify the database queries within this method to filter by the list of site IDs associated with the portfolio user.
-        4.  Create a test script using  to sign in as the portfolio user and call the WHERE summary endpoint, verifying that it correctly aggregates data from both  and .
-    -   **Why fix this issue and what will be achieved with the fix?** This fix is critical to complete the multi-site support feature. It will ensure that portfolio users see correctly aggregated data across all sites they are authorized to view, preventing data leakage and fulfilling the user's requirement.
-    -   **Status:** IN PROGRESS
-    -   **Is recurring issue?** N
-    -   **Should Test frontend/backend/both after fix?** backend
-    -   **Blocked on other issue:** None
+**All Pending/In progress Issue list**: 
+None. (Note: The WHERE lens multi-site scope bug from the previous fork was investigated and proven to be a non-issue caused by test data constraints; scoping logic works correctly).
 
-**In progress Task List**:
--   **Task 1:** (P0) Finalize multi-site support implementation.
-    -   **Where to resume:** Address Issue 1 above by fixing the  method.
-    -   **What will be achieved with this?** This will complete the multi-site scoped access feature, ensuring both HOW and WHERE lenses correctly filter and display data based on user permissions.
-    -   **Status:** IN PROGRESS
-    -   **Should Test frontend/backend/both after fix?** backend
-    -   **Blocked on something:** None
+**In progress Task List**: 
+- Task 1: P0 - Portfolio View (Multi-Site Intelligence)
+    - Where to resume: Build the default view for portfolio users (). It needs to show site ranking by VaR, site ranking by realised savings, aggregated portfolio metrics, and Where to focus next.
+    - What will be achieved with this?: It fulfills the final P0 requirement for the Rockwell Pilot demo. It enforces the strict HOW (operator) vs WHERE (portfolio) separation.
+    - Status: NOT STARTED
+    - Should Test frontend/backend/both after fix?: both
+    - Blocked on something: None
 
 **Upcoming and Future Tasks**
-- **Upcoming Tasks:**
-  - **P0: Frontend WebSocket Hook:** Implement a React hook or component to handle authenticated WebSocket connections, reconnections, and state synchronization based on real-time messages.
-- **Future Tasks:**
-  - **P1: Admin UI:** Build a user interface for administrators to manage users and assign roles/scopes.
-  - **P2: Rule Configuration UI:** Develop a frontend for configuring the rules that drive the state engine.
-  - **P3: Secure Remaining Legacy Tables:** Continue the security hardening by enabling RLS on the 59 non-critical legacy tables.
-  - **P3: Review  table policies:** Investigate the permissive policies on the legacy  table and decide on a course of action.
-  - Learning-driven baseline optimization.
-  - Outcome export (CSV/PDF).
-  - Implement Assessment/LEAP modules using canonical schemas as a reference.
+- **P0 Upcoming Tasks:**
+  - Design Polish: Use the design agent to refine the visual aesthetics of the Intelligence Surface and Portfolio View (Priority: Clarity > Speed > Credibility).
+- **P1 Future Tasks (Reframed for Pilot):**
+  - Admin UI: Minimal build for pilot deployment (User roles, site assignment, basic site creation/edit).
+  - Rule Configuration: Limited to threshold tuning and verification window config.
+- **Backlog/Deferred:**
+  - Interface for static/real-time energy costs and tariffs.
+  - Asset relationships, Benchmarking, Learning optimization.
+  - Full assessment modules (IBA, EPA, etc. - DO NOT prioritize yet).
 
 **Completed work in this session**
-- **Data Layer Alignment Analysis:** Confirmed the canonical SQL schema represents a different product variant and received user approval to maintain the current SBM schema.
-- **State Transition & Escalation Logic:** Implemented and tested backend logic for state transitions () and automatic/manual priority escalation.
-- **WebSocket Real-Time Layer:** Built and tested a complete WebSocket system for broadcasting real-time updates on priorities and states, driven by the existing event backbone.
-- **Database Security Hardening (Phase 1A & 1B):** Enabled Row-Level Security (RLS) on all 15 active RAMP tables and 16 high-risk legacy tables, successfully blocking direct API access without disrupting backend functionality.
-- **Authentication & RBAC (Phase 2):** Fully implemented and tested an authentication system using Supabase Auth, with role-based (, , ) and scope-based (site ID) access control for all API and WebSocket endpoints.
+- Multi-site Scoped Access Verification (Tested HOW and WHERE lenses end-to-end with real roles) (DONE)
+- Frontend WebSocket Hook with Zustand (, ) (DONE)
+- Restored Priority Action Details (drivers, confidence, recommendations, modal) to the authenticated WebSocket view (DONE)
+- Created single-page  for Rockwell Demo (DONE)
+- Built backend Intelligence APIs (, ) (DONE)
+- Implemented inline condition-to-outcome traceability within priority cards (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-- None. All issues prioritized by the user in this session have been addressed.
+None.
 
 **Known issue recurrence from previous fork**
-- None.
+- Issue recurrence in previous fork: None
+- Recurrence count: 0
+- Status: RESOLVED
 
 **Code Architecture**
 
 
 **Key Technical Concepts**
-- **Backend:** FastAPI, SQLAlchemy Core
-- **Database:** Supabase/PostgreSQL, Alembic
-- **Frontend:** React
-- **Real-time:** FastAPI WebSockets
-- **Security:** JWT Authentication, Role-Based Access Control (RBAC), Row-Level Security (RLS)
-- **Architecture:** Event-Driven, Service-Oriented, strict HOW/WHERE Lens separation, Multi-tenancy (via site scoping).
+- Frontend: React, Zustand (for WebSocket state), TailwindCSS.
+- Backend: FastAPI, SQLAlchemy Core.
+- Database: PostgreSQL (Supabase) with Alembic.
+- Real-time: FastAPI WebSockets + Zustand state manager.
+- Architecture: Strict HOW vs WHERE lens separation, Single-Page Demo surface (No deep navigation).
 
 **key DB schema**
-- **ramp_user_roles:** . This table is central to the new authentication and authorization system.
+- : {user_id, role, site_ids (ARRAY)}
+- : {id, state_id, asset_id, priority_score, priority_band, economic_impact (JSONB), drivers (ARRAY)}
+- : {id, intervention_id, savings_value, savings_unit, confidence_band}
 
 **changes in tech stack**
-- Added , , , and  libraries to  for authentication.
+- Added  to frontend dependencies via yarn add v1.22.22
+[1/4] Resolving packages...
+[2/4] Fetching packages...
+[3/4] Linking dependencies...
+[4/4] Building fresh packages...
+success Saved lockfile.
+success Saved 1 new dependency.
+info Direct dependencies
+└─ zustand@5.0.12
+info All dependencies
+└─ zustand@5.0.12
+Done in 0.33s..
 
 **All files of reference**
-- : Major updates to add endpoints for escalation, a full suite of authentication routes, and authenticated WebSocket endpoints. All HOW/WHERE routes now have auth dependencies.
-- : New module containing all logic for authentication, authorization dependencies, user role services, and site scoping.
-- : New module for handling WebSocket connections and broadcasting events.
-- : Modified to add state transition logic and hooks for the WebSocket broadcaster.
-- : New Alembic migration to create the  table.
-- : Updated with all completed features, including WebSockets and Authentication.
+- : The newly created single-page demo surface answering the 4 core pilot questions.
+- : Zustand store handling WebSocket connections, message parsing, and real-time state.
+- : Houses the newly prefixed  WebSocket routes and  routes.
+- : Updated drastically to reflect the Rockwell pivot. Treat this as the source of truth for upcoming tasks.
 
-**Areas that need refactoring**:
-- The file  was noted to contain legacy MongoDB syntax. It was not part of the current workstream but should be flagged for a future cleanup task to align it with the PostgreSQL/SQLAlchemy architecture.
+**Areas that need refactoring**
+-  still contains legacy MongoDB syntax (flagged in previous fork, leave alone until relevant).
 
 **key api endpoints**
-- : Core authentication flow.
-- : Admin-only user management.
-- : Triggers the priority escalation service.
-- : New endpoint for portfolio users to list their accessible sites.
-- : Authenticated WebSocket endpoints that require a token in the query parameters.
+-  (Requires JWT token query param)
+- 
+- 
 
 **Critical Info for New Agent**
-- **Authentication is Live:** All API and WebSocket requests to protected routes now require a valid JWT. Use the test credentials provided to interact with the application.
-- **Access is Role and Scope-Based:** The system strictly enforces access based on a user's role (, , ) and their assigned . Operators can only see data from their sites via the HOW lens. Portfolio users see aggregated data from their sites via the WHERE lens. Admins have unrestricted access.
-- **RLS is Active:** Direct API access to RAMP tables via Supabase's REST API is blocked for  and  roles. All backend operations work because the  user connection has RLS bypass privileges. This is the intended security model.
-- **Follow User Direction:** The user, Brad, is highly technical and gives clear, sequential instructions. Adhere strictly to the latest guidance. The current priority is to fix the multi-site bug in the WHERE lens, then implement the frontend WebSocket hook.
+- **Rockwell Pivot Strategy:** The project goal is entirely focused on a pilot demo. Avoid building complex configuration UIs, tabs, or deep navigation. Stick to demonstrating that operational signals translate to economic outcomes.
+- **WebSocket Routing:** All WebSocket routes in  MUST be prefixed with  (e.g., ) so that Kubernetes ingress routes them to the backend properly.
+- **Traceability UX:** Traceability (Condition -> Decision -> Action -> Outcome) is embedded *inline* in the priority cards inside . Do not build a separate page for this.
+- **Energy Costs Backlog:** The user asked about static vs real-time energy costs. This is confirmed to be deferred to the backlog for now.
 
 **documents and test reports created in this job**
--  (State Transition & Escalation Tests)
--  (WebSocket Implementation Tests)
--  (Authentication & RBAC Tests)
+- 
+- 
 
 **Last 10 User Messages and any pending HUMAN messages**
-1.  **User**: Confirmed Phase 1B (securing high-risk legacy tables) was a strong result.
-2.  **User**: Instructed agent not to change the legacy  table yet and to pause the broad legacy security sweep.
-3.  **User**: Prioritized moving to Phase 2: implementing authentication, RBAC, and scoped policies.
-4.  **Assistant**: Acknowledged and asked for Supabase Auth credentials to proceed with Phase 2.
-5.  **User**: (Duplicate message) Repeated the instruction to move to Phase 2.
-6.  **Assistant**: Re-iterated that credentials were needed and showed the current not_configured status.
-7.  **User**: Provided all required Supabase credentials (, , , ).
-8.  **Assistant**: (After a series of implementation steps) Successfully verified the full authentication and RBAC system.
-9.  **User**: Provided Supabase Auth values again (likely a redundant message) and confirmed the implementation plan.
-10. **User**: Confirmed Phase 2 was complete and set the next priority: Multi-site support with scoped access, providing detailed requirements for backend enforcement and RLS integration.
+1. User confirmed the agent's plan to test multi-site scoping, verify lenses, and implement Zustand WebSocket hook. (Completed)
+2. User requested the removal of the Made with Emergent label. (Completed)
+3. User noted that the priority action details (drivers, take action button) were missing from the new WS view. (Completed)
+4. User asked if an interface for static/realtime energy costs is needed. (Acknowledged)
+5. User said to hold off on energy costs and provided a massive Roadmap update for a Rockwell Alignment. (Acknowledged)
+6. User clarified details of the Rockwell roadmap: It must be a single-page demo, traceability must be inline, and the Portfolio view should be the default for portfolio users. (Intelligence Surface & Traceability Completed).
 
 **Project Health Check:**
-- **Healthy:** The application is robust, secure, and feature-complete for the current MVP stage. The core logic, real-time layer, and auth system are all working and tested. There are no broken components.
+- System is Healthy. WebSockets are successfully connecting through the proxy, auth is functioning, and the new Intelligence Surface is pulling correct data.
 
 **3rd Party Integrations**
-- **Supabase/PostgreSQL:** Primary database.
-- **Supabase Auth:** Integrated for authentication, using the  client library on the backend.
+- Supabase/PostgreSQL (Database & Auth) - Requires User API Key (already configured in ).
 
 **Testing status**
-- **Testing agent used after significant changes:** YES. Used three times for major features (Escalation, WebSockets, Auth). All returned successful test reports.
-- **Troubleshoot agent used after agent stuck in loop:** NO
-- **Test files created:**
-  - 
-  - 
-  - 
-- **Known regressions:** None.
+- Testing agent used after significant changes: YES (iteration 9)
+- Troubleshoot agent used after agent stuck in loop: NO
+- Test files created: 
+- Known regressions: None
 
 **Credentials to test flow:**
-- **Admin:**  / 
-- **Operator:**  / 
-- **Portfolio:**  / 
+- Admin:  / 
+- Operator:  / 
+- Portfolio:  / 
 
 **What agent forgot to execute**
-- The agent effectively executed all prioritized tasks. The legacy  file with old code was noted but correctly left alone as it was outside the scope of current work. No other missed items were identified.</analysis>
+- The agent successfully executed all tasks in sequence, completely fulfilling the newly requested Rockwell pivot requirements for the Intelligence Surface. Next logical step is the Portfolio View.</analysis>
