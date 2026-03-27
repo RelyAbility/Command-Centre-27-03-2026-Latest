@@ -19,6 +19,7 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 - **VSO (Verified State Outcome)** — output for learning and commercial value
 - **HOW vs WHERE** — lens separation, not separate engines
 - **IBA deterministic pipeline** — signals → metrics → states → benchmarks → recommendations (no AI)
+- **WAT (Workflow-Agent-Tool)** — target architecture for structured, event-triggered workflows
 
 ### Technology Stack
 - **Backend:** FastAPI + Supabase/PostgreSQL (via asyncpg)
@@ -31,6 +32,7 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 ## Rockwell Demo — Intelligence Surface (COMPLETE)
 
 ONE surface, TWO modes — same component, different aggregation level.
+Industrial Refrigeration / Dairy Processing context throughout.
 
 ### Operator Mode (HOW lens)
 - Asset-level ranked priorities via WebSocket (Live indicator)
@@ -46,24 +48,25 @@ ONE surface, TWO modes — same component, different aggregation level.
 - **Fleet Overview**: 400 refrigeration units · 8 sites · 30-day analysis
 - **Scale**: $91k/30-day → $1.1M/year annualized opportunity
 - **State Distribution**: Stable 54.5%, Drift 20.2%, Idle 9.2%, Cycling 9.8%, Degraded 6.2%
-- **Top Opportunities**: Energy Drift Recovery ($47k/mo, 81 assets), Degradation Intervention ($27k/mo, 25 assets), Short-Cycling ($16k/mo), Idle Optimization ($1k/mo)
+- **Top Opportunities**: Compressor Efficiency Recovery ($47k/mo), Refrigeration System Rehabilitation ($27k/mo), Compressor Cycling Optimization ($16k/mo), Standby Load Reduction ($1k/mo)
 - **Fleet Benchmarks**: P25/P50/P75 for Energy Intensity, Runtime Ratio, Cycle Frequency
 - **Trust Signal**: "Based on measured operating behaviour (no AI inference)"
 
 #### Analysis → Action Connection
-- "This condition is occurring across the portfolio → RAMP is actively detecting and resolving it in real time"
-- Active Detection: [CRITICAL] Cold Storage Compressor at Warehouse ($340/day)
-- Verified Proof: VFD Coolant Pump at Riverside (+1.3 kWh saved)
+- Active Detection: [CRITICAL] Screw Compressor #2 at Food Processing Facility ($340/day)
+- Verified Proof: Glycol Circulation Pump at Dairy Processing Plant (+1.3 kWh/hr reduction)
 
 #### Site Intelligence
-- 8 sites ranked by opportunity (Warehouse #1 at $19k/mo)
+- 8 sites ranked by opportunity (Dairy Processing Plant #1 at $19k/mo)
 - "Top Opportunity" + "RAMP Live" badges
 - Inline drill-down showing live RAMP priorities per site
 - Per-site state distribution breakdowns
 
-#### Scaled Outcomes
-- Verified savings projected across similar assets in portfolio
-- Portfolio-wide verification rate and trust metrics
+### Demo Context (Industrial Refrigeration)
+**Sites**: Dairy Processing Plant — Refrigeration, Food Processing Facility — Cold Storage
+**Systems**: Ammonia Refrigeration System, Low-Temperature Cooling System, Glycol Circulation System, Cold Storage Refrigeration, Process Cooling System
+**Assets**: Screw Compressor #1/#2, Evaporator Bank 1, Condenser Unit 1, Glycol Circulation Pump, Cold Room Evaporator, Blast Freezer Evaporator
+**Condition Language**: compressor efficiency degradation, refrigeration load imbalance, cooling drift, elevated condenser load
 
 ### Role Routing
 - **Operator** → Operator mode (asset level)
@@ -75,8 +78,9 @@ ONE surface, TWO modes — same component, different aggregation level.
 - `GET /api/intelligence/outcomes` — Operator verified outcomes
 - `GET /api/intelligence/trust` — System trust metrics
 - `GET /api/intelligence/trace/{state_id}` — Condition-to-outcome trace
-- `GET /api/where/portfolio/intelligence` — Portfolio RAMP data (replication, repeatability, scaled outcomes, drill-down)
+- `GET /api/where/portfolio/intelligence` — Portfolio RAMP data
 - `GET /api/iba/refrigeration/analysis` — Portfolio Analysis (deterministic IBA pipeline + RAMP connection)
+- `POST /api/system/demo/first-five-minutes` — Seed primary site
 - `POST /api/system/demo/seed-portfolio` — Seed multi-site demo data
 
 ## Core Requirements Status
@@ -95,10 +99,11 @@ ONE surface, TWO modes — same component, different aggregation level.
 | Intelligence Surface (Operator) | Completed (2026-03-27) |
 | Portfolio Mode (Site-level) | Completed (2026-03-27) |
 | Portfolio Scale + Replication | Completed (2026-03-27) |
-| **IBA Deterministic Pipeline** | **Completed (2026-03-27)** |
-| **Portfolio Analysis UI** | **Completed (2026-03-27)** |
-| **Analysis → Action Connection** | **Completed (2026-03-27)** |
-| **Fleet Benchmarks + Distribution** | **Completed (2026-03-27)** |
+| IBA Deterministic Pipeline | Completed (2026-03-27) |
+| Portfolio Analysis UI | Completed (2026-03-27) |
+| Analysis → Action Connection | Completed (2026-03-27) |
+| Fleet Benchmarks + Distribution | Completed (2026-03-27) |
+| **Demo Context: Industrial Refrigeration** | **Completed (2026-03-27)** |
 
 ## Test Users
 - Admin: rampadmin@gmail.com / RampAdmin2024!
@@ -106,9 +111,9 @@ ONE surface, TWO modes — same component, different aggregation level.
 - Portfolio: portfolio1@gmail.com / Portfolio2024!
 
 ## Demo Data
-- **RAMP Live Sites**: Riverside (3 priorities, $213 VaR) + Warehouse (2 priorities, $395 VaR)
+- **Site 1**: Dairy Processing Plant — Refrigeration (3 priorities, $213 VaR)
+- **Site 2**: Food Processing Facility — Cold Storage (2 priorities, $395 VaR)
 - **IBA Fleet**: 400 units across 8 sites, $1.09M/yr opportunity
-- **Warehouse #1**: $19k/mo opportunity, CRITICAL Cold Storage Compressor
 
 ---
 
@@ -121,7 +126,13 @@ ONE surface, TWO modes — same component, different aggregation level.
 - Admin UI: User roles, site assignment, basic site creation/edit
 - Rule Configuration: Threshold tuning, verification window config
 
-**P2 — Post-Pilot**
+**P2 — WAT Architecture Alignment**
+- Formalize workflows table and workflow execution engine (run_id, started_at, completed_at, status)
+- Agent role boundaries (Ingestion, Triage, Analysis, Recommendation, Reporting, Learning)
+- Event → Workflow automatic triggering (currently events are recorded but don't auto-trigger)
+- WAT Starter Pack reference docs stored at /tmp/starter_pack/
+
+**P3 — Post-Pilot**
 - Asset relationships, benchmarking, learning optimization, export/reporting
 
 **Deferred**
@@ -130,7 +141,7 @@ ONE surface, TWO modes — same component, different aggregation level.
 ## Key Files
 
 ### Backend
-- `/app/backend/server.py` — Main API with intelligence, portfolio, IBA endpoints
+- `/app/backend/server.py` — Main API with intelligence, portfolio, IBA endpoints, demo seeders
 - `/app/backend/ramp/iba/pipeline.py` — Deterministic refrigeration analysis pipeline
 - `/app/backend/ramp/db.py` — Database operations
 - `/app/backend/ramp/auth/` — Authentication + scope filtering
@@ -147,3 +158,4 @@ ONE surface, TWO modes — same component, different aggregation level.
 - `/app/test_reports/iteration_10.json` — Portfolio basic (19/19 + 4/4)
 - `/app/test_reports/iteration_11.json` — Portfolio commercial (23/23 + all frontend)
 - `/app/test_reports/iteration_12.json` — IBA Integration (31/31 + 17/17)
+- `/app/test_reports/iteration_13.json` — Industrial Refrigeration Terminology (30/30 + all frontend)
