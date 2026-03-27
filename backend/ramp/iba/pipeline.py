@@ -6,7 +6,7 @@ All threshold-based. No AI inference.
 import hashlib, struct
 
 ANALYSIS_DAYS = 30
-ENERGY_RATE = 0.12
+ENERGY_RATE = 0.14
 HOURS_PER_DAY = 24
 STATES = ["stable", "drift", "idle", "cycling", "degraded"]
 
@@ -19,22 +19,22 @@ SITES = [
      "profile": [0.65, 0.13, 0.09, 0.09, 0.04]},
     {"id": "iba-southeast", "name": "Frozen Foods Processing \u2014 Blast Cooling", "units": 50,
      "profile": [0.56, 0.22, 0.06, 0.08, 0.08]},
-    {"id": "iba-pacific", "name": "Chemical Processing \u2014 Thermal Management", "units": 48,
+    {"id": "iba-pacific", "name": "Cheese Production Facility \u2014 Cooling", "units": 48,
      "profile": [0.73, 0.12, 0.08, 0.04, 0.03]},
-    {"id": "iba-central", "name": "Glass Manufacturing \u2014 Furnace Cooling", "units": 45,
+    {"id": "iba-central", "name": "Milk Powder Plant \u2014 Process Cooling", "units": 45,
      "profile": [0.58, 0.16, 0.09, 0.11, 0.06]},
-    {"id": "iba-greatlakes", "name": "Pharmaceutical Plant \u2014 Clean Room HVAC", "units": 52,
+    {"id": "iba-greatlakes", "name": "Seafood Processing \u2014 Flash Freezing", "units": 52,
      "profile": [0.63, 0.17, 0.10, 0.06, 0.04]},
-    {"id": "iba-mountain", "name": "Distribution Center \u2014 Cold Storage", "units": 50,
+    {"id": "iba-mountain", "name": "Cold Storage Facility \u2014 Distribution", "units": 50,
      "profile": [0.62, 0.16, 0.08, 0.07, 0.07]},
 ]
 
 ASSET_TYPES = ["SCREW_COMPRESSOR", "CONDENSER", "EVAPORATOR", "PUMP_SYSTEM"]
 ASSET_TYPE_WEIGHTS = [0.40, 0.25, 0.20, 0.15]
 ASSET_TYPE_LABELS = {"SCREW_COMPRESSOR": "Screw Compressor", "CONDENSER": "Condenser Unit", "EVAPORATOR": "Evaporator Bank", "PUMP_SYSTEM": "Pump System"}
-CAPACITY_RANGES = {"SCREW_COMPRESSOR": (20, 150), "CONDENSER": (15, 100), "EVAPORATOR": (10, 80), "PUMP_SYSTEM": (5, 50)}
-POWER_FACTOR_RANGES = {"SCREW_COMPRESSOR": (0.9, 1.5), "CONDENSER": (0.3, 0.6), "EVAPORATOR": (0.2, 0.5), "PUMP_SYSTEM": (0.8, 1.3)}
-OPPORTUNITY_FACTORS = {"drift": 0.15, "idle": 0.10, "cycling": 0.12, "degraded": 0.30}
+CAPACITY_RANGES = {"SCREW_COMPRESSOR": (150, 800), "CONDENSER": (100, 500), "EVAPORATOR": (80, 400), "PUMP_SYSTEM": (30, 200)}
+POWER_FACTOR_RANGES = {"SCREW_COMPRESSOR": (1.0, 1.8), "CONDENSER": (0.4, 0.8), "EVAPORATOR": (0.3, 0.7), "PUMP_SYSTEM": (0.9, 1.5)}
+OPPORTUNITY_FACTORS = {"drift": 0.18, "idle": 0.12, "cycling": 0.15, "degraded": 0.35}
 OPPORTUNITY_LABELS = {"drift": "Compressor Efficiency Recovery", "idle": "Standby Load Reduction", "cycling": "Compressor Cycling Optimization", "degraded": "Refrigeration System Rehabilitation"}
 OPPORTUNITY_DESCRIPTIONS = {
     "drift": "compressors and evaporators operating above optimal efficiency \u2014 recoverable through refrigerant charge and maintenance",
@@ -56,7 +56,7 @@ def _percentile(data, p):
     c = min(f + 1, len(data) - 1)
     return data[f] + (k - f) * (data[c] - data[f])
 
-_cache = None
+_cache = None  # Reset on module reload
 
 def run_analysis():
     global _cache
@@ -153,9 +153,14 @@ def run_analysis():
     assert 99.5 <= pct_sum <= 100.5
     assert 50 <= state_dist["stable"]["percent"] <= 70
     assert benchmarks["energy_intensity"]["p25"] < benchmarks["energy_intensity"]["p50"] < benchmarks["energy_intensity"]["p75"]
+    # Fleet asset type counts for replication scaling
+    fleet_type_counts = {}
+    for at in ASSET_TYPES:
+        fleet_type_counts[ASSET_TYPE_LABELS[at]] = sum(1 for u in units if u["asset_type"] == at)
     result = {
         "fleet": {"total_units": n, "analysis_days": ANALYSIS_DAYS, "site_count": len(SITES),
-                  "asset_types": [ASSET_TYPE_LABELS[t] for t in ASSET_TYPES], "fleet_monthly_energy": round(fleet_energy, 0)},
+                  "asset_types": [ASSET_TYPE_LABELS[t] for t in ASSET_TYPES], "fleet_monthly_energy": round(fleet_energy, 0),
+                  "asset_type_counts": fleet_type_counts},
         "state_distribution": state_dist, "benchmarks": benchmarks, "opportunities": opportunities, "site_ranking": site_ranking,
         "scale": {"total_30day": round(total_monthly, 0), "annualized": round(total_monthly * 12, 0), "currency": "USD"},
         "highlight": {

@@ -308,7 +308,7 @@ async def simulate_drift(db: RAMPDatabase = Depends(get_db)):
     # Calculate economic impact
     tariff = site.get("energy_tariff", 0.12) if site else 0.12
     excess_hourly = baseline_value * (drift_deviation / 100)
-    var_per_day = excess_hourly * 20 * tariff  # 20 operating hours
+    var_per_day = excess_hourly * 20 * tariff * 50  # 20 operating hours, enterprise scale
     vr_per_day = var_per_day * 0.8
     
     priority = await db.create_priority({
@@ -584,8 +584,8 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "verification_window_end": now - timedelta(days=3),
         "frozen_baseline_value": 12.5,
         "actual_value": 11.2,
-        "savings_value": 1.3,
-        "savings_unit": "kWh/hr",
+        "savings_value": 34.00,
+        "savings_unit": "$/day",
         "savings_type": "energy",
         "confidence": 0.91,
         "confidence_band": "HIGH",
@@ -600,8 +600,8 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "state_type": "DRIFT",
         "occurrence_count": 1,
         "intervention_count": 1,
-        "total_savings": 1.3,
-        "avg_effectiveness": 1.3,
+        "total_savings": 34.00,
+        "avg_effectiveness": 34.00,
         "first_occurred_at": now - timedelta(days=3, hours=4),
         "last_occurred_at": now - timedelta(days=3, hours=4)
     })
@@ -612,10 +612,10 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "entity_type": "outcome",
         "entity_id": past_intervention["id"],
         "payload": {
-            "savings_value": 1.3,
-            "savings_unit": "kWh/hr",
+            "savings_value": 34.00,
+            "savings_unit": "$/day",
             "confidence": 0.91,
-            "message": "Glycol pump calibration verified — 1.3 kWh/hr reduction in compressor load confirmed"
+            "message": "Glycol pump calibration verified — $34/day ($12,410/yr) reduction in compressor load confirmed"
         }
     })
     
@@ -652,12 +652,12 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
         "drivers": [
             "22% compressor efficiency degradation sustained for 3 hours",
             "Critical refrigeration asset (90 criticality)",
-            "Estimated $12.60/hr excess refrigeration energy cost"
+            "Estimated $315/hr excess refrigeration energy cost"
         ],
         "economic_impact": {
-            "value_at_risk_per_day": 151.20,
-            "value_recoverable_per_day": 128.52,
-            "estimated_annual_impact": 55188
+            "value_at_risk_per_day": 7560.00,
+            "value_recoverable_per_day": 6426.00,
+            "estimated_annual_impact": 2759400
         },
         "score_components": {"severity": 45, "economic": 25, "criticality": 30}
     })
@@ -693,9 +693,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
             "May indicate ice buildup or restricted airflow"
         ],
         "economic_impact": {
-            "value_at_risk_per_day": 42.50,
-            "value_recoverable_per_day": 36.12,
-            "estimated_annual_impact": 15513
+            "value_at_risk_per_day": 2125.00,
+            "value_recoverable_per_day": 1806.00,
+            "estimated_annual_impact": 775650
         },
         "score_components": {"severity": 35, "economic": 20, "criticality": 25}
     })
@@ -731,9 +731,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
             "May self-correct with refrigeration load changes"
         ],
         "economic_impact": {
-            "value_at_risk_per_day": 18.90,
-            "value_recoverable_per_day": 12.30,
-            "estimated_annual_impact": 6899
+            "value_at_risk_per_day": 945.00,
+            "value_recoverable_per_day": 615.00,
+            "estimated_annual_impact": 344925
         },
         "score_components": {"severity": 20, "economic": 15, "criticality": 20}
     })
@@ -779,7 +779,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                 "asset": "Glycol Circulation Pump",
                 "issue": "18.5% cooling drift detected 3 days ago",
                 "action": "Calibration — recalibrated glycol pump frequency setpoints",
-                "outcome": "Verified +1.3 kWh/hr reduction in compressor load with 91% confidence",
+                "outcome": "Verified $34/day ($12,410/yr annualised) reduction with 91% confidence",
                 "time_to_verify": "1 hour",
                 "message": "This demonstrates the full RAMP loop: detection → action → verification → learning."
             },
@@ -788,9 +788,9 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                 "currency": "USD",
                 "active_issues": 3,
                 "breakdown": [
-                    {"asset": "Screw Compressor #1", "var": 151.20, "band": "HIGH"},
-                    {"asset": "Evaporator Bank 1", "var": 42.50, "band": "MEDIUM"},
-                    {"asset": "Condenser Unit 1", "var": 18.90, "band": "LOW"}
+                    {"asset": "Screw Compressor #1", "var": 7560.00, "band": "HIGH"},
+                    {"asset": "Evaporator Bank 1", "var": 2125.00, "band": "MEDIUM"},
+                    {"asset": "Condenser Unit 1", "var": 945.00, "band": "LOW"}
                 ]
             },
             "priority_actions": [
@@ -800,7 +800,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "issue": "22% compressor efficiency degradation for 3 hours",
                     "band": "HIGH",
                     "confidence_label": "strong",
-                    "var_per_day": 151.20,
+                    "var_per_day": 7560.00,
                     "recommended_action": "Inspect suction strainer and check for refrigerant charge deviation",
                     "state_id": comp_state["id"]
                 },
@@ -810,7 +810,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "issue": "12% refrigeration load imbalance for 6 hours",
                     "band": "MEDIUM",
                     "confidence_label": "moderate",
-                    "var_per_day": 42.50,
+                    "var_per_day": 2125.00,
                     "recommended_action": "Check evaporator coil for ice buildup and verify defrost cycle operation",
                     "state_id": ahu_state["id"]
                 },
@@ -820,7 +820,7 @@ async def first_five_minutes_demo(db: RAMPDatabase = Depends(get_db)):
                     "issue": "8% cooling drift for 45 minutes",
                     "band": "LOW",
                     "confidence_label": "moderate",
-                    "var_per_day": 18.90,
+                    "var_per_day": 945.00,
                     "recommended_action": "Monitor — may self-correct with refrigeration load changes",
                     "state_id": chiller_state["id"]
                 }
@@ -969,9 +969,9 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
             "Critical asset — estimated $12k repair cost"
         ],
         "economic_impact": {
-            "value_at_risk_per_day": 340.00,
-            "value_recoverable_per_day": 295.00,
-            "estimated_annual_impact": 124100
+            "value_at_risk_per_day": 17000.00,
+            "value_recoverable_per_day": 14750.00,
+            "estimated_annual_impact": 6205000
         },
         "score_components": {"severity": 90, "economic": 95, "criticality": 92}
     })
@@ -1004,9 +1004,9 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
             "Evaporator coil pressure differential elevated",
         ],
         "economic_impact": {
-            "value_at_risk_per_day": 55.00,
-            "value_recoverable_per_day": 42.00,
-            "estimated_annual_impact": 20075
+            "value_at_risk_per_day": 2750.00,
+            "value_recoverable_per_day": 2100.00,
+            "estimated_annual_impact": 1003750
         },
         "score_components": {"severity": 45, "economic": 50, "criticality": 40}
     })
@@ -1040,8 +1040,8 @@ async def seed_portfolio_demo(db: RAMPDatabase = Depends(get_db)):
     
     await db.create_outcome({
         "intervention_id": rtu2_intervention["id"],
-        "savings_value": 0.9,
-        "savings_unit": "kWh/hr",
+        "savings_value": 18.50,
+        "savings_unit": "$/day",
         "savings_type": "ENERGY",
         "confidence_band": "HIGH",
         "status": "VERIFIED",
@@ -1188,7 +1188,7 @@ async def complete_verification_flow(db: RAMPDatabase = Depends(get_db)):
         "priority_band": "HIGH",
         "priority_type": "OPERATIONAL",
         "drivers": [f"{drift_deviation:.0f}% compressor efficiency degradation", "Critical refrigeration asset"],
-        "economic_impact": {"value_at_risk_per_day": 25.25},
+        "economic_impact": {"value_at_risk_per_day": 1262.50},
         "score_components": {"severity": 50, "economic": 20, "risk": 30}
     })
     
@@ -2218,7 +2218,7 @@ async def get_refrigeration_analysis(
         verified = outcome_result.fetchone()
     
     ramp_connection = {
-        "message": "This condition is occurring across the portfolio. RAMP is actively detecting and resolving it in real time.",
+        "message": "Detected across portfolio assets. Prioritised, resolved, verified, and scaled across operations.",
         "active_detection": {
             "priority_id": str(top_ramp[0]) if top_ramp else None,
             "priority_band": top_ramp[1] if top_ramp else None,

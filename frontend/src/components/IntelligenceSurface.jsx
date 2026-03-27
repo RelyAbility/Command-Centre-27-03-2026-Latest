@@ -56,6 +56,11 @@ const fmtCompact = (v) => {
   return fmt(v);
 };
 
+const FLEET_TYPE_MAP = {
+  'PUMP': 'Pump System', 'COMPRESSOR': 'Screw Compressor',
+  'EVAPORATOR': 'Evaporator Bank', 'CONDENSER': 'Condenser Unit',
+};
+
 const timeAgo = (date) => {
   if (!date) return 'N/A';
   const d = Math.floor((new Date() - new Date(date)) / 60000);
@@ -334,9 +339,11 @@ function PortfolioView({ portfolioData, analysisData, varTotal, recoverableTotal
         <section data-testid="ramp-connector">
           <div className="bg-gradient-to-r from-indigo-900/30 via-indigo-900/15 to-slate-800 rounded-xl border border-indigo-500/20 p-5">
             <div className="text-xs text-indigo-400 uppercase tracking-wider font-medium mb-3">
-              Portfolio Analysis &rarr; Live Detection
+              Portfolio Analysis &rarr; Live Detection &rarr; Verified Outcome
             </div>
-            <p className="text-sm text-slate-300 mb-4">{rampConnection.message}</p>
+            <p className="text-sm text-slate-300 mb-4">
+              Detected across portfolio assets &rarr; prioritised &rarr; resolved &rarr; verified &rarr; scaled across operations.
+            </p>
 
             <div className="flex items-stretch gap-3">
               {/* Active Detection */}
@@ -365,17 +372,35 @@ function PortfolioView({ portfolioData, analysisData, varTotal, recoverableTotal
               {/* Verified Proof */}
               <div className="flex-1 bg-slate-900/50 rounded-lg p-4 border border-emerald-500/20">
                 <div className="text-xs text-emerald-400 uppercase tracking-wider mb-2">Verified Outcome</div>
-                {rampConnection.verified_proof ? (
-                  <>
-                    <div className="text-sm font-medium text-white mb-1">{rampConnection.verified_proof.asset_name}</div>
-                    <div className="text-xs text-slate-400">{rampConnection.verified_proof.site_name}</div>
-                    <div className="text-lg font-semibold text-emerald-400 mt-2">
-                      +{rampConnection.verified_proof.savings_value} {rampConnection.verified_proof.savings_unit}
-                      <span className="text-xs text-slate-400 ml-1">saved</span>
-                    </div>
-                    <div className="text-xs text-slate-500 mt-1">{timeAgo(rampConnection.verified_proof.verified_at)}</div>
-                  </>
-                ) : (
+                {rampConnection.verified_proof ? (() => {
+                  const vp = rampConnection.verified_proof;
+                  const isFinancial = vp.savings_unit?.includes('$');
+                  const dailyVal = isFinancial ? vp.savings_value : null;
+                  const annualVal = dailyVal ? dailyVal * 365 : null;
+                  const fleetLabel = 'Pump System';
+                  const fleetCount = fleet?.asset_type_counts?.[fleetLabel] || 1;
+                  const portfolioImpact = annualVal ? annualVal * fleetCount : null;
+                  return (
+                    <>
+                      <div className="text-sm font-medium text-white mb-1">{vp.asset_name}</div>
+                      <div className="text-xs text-slate-400">{vp.site_name}</div>
+                      <div className="text-lg font-semibold text-emerald-400 mt-2">
+                        {isFinancial ? `${fmt(dailyVal)}/day` : `+${vp.savings_value} ${vp.savings_unit}`}
+                      </div>
+                      {annualVal && (
+                        <div className="text-sm text-emerald-300/70 mt-0.5">
+                          {fmtCompact(annualVal)}/yr validated
+                        </div>
+                      )}
+                      {portfolioImpact && fleetCount > 1 && (
+                        <div className="text-xs text-slate-400 mt-1.5 border-t border-slate-700/50 pt-1.5">
+                          Replicated across {fleetCount} similar assets &rarr; <span className="text-emerald-400 font-semibold">{fmtCompact(portfolioImpact)}/yr</span> portfolio impact
+                        </div>
+                      )}
+                      <div className="text-xs text-slate-500 mt-1">{timeAgo(vp.verified_at)}</div>
+                    </>
+                  );
+                })() : (
                   <div className="text-sm text-slate-500">Pending verification</div>
                 )}
               </div>
@@ -424,33 +449,48 @@ function PortfolioView({ portfolioData, analysisData, varTotal, recoverableTotal
               <div className="p-5">
                 <div className="mb-3">
                   <div className="text-xs text-slate-400 mb-1">Portfolio Verified Savings</div>
-                  <div className="text-3xl font-bold text-emerald-400" data-testid="total-savings">{fmt(outcomesData?.total_savings || 0, 2)}</div>
+                  <div className="text-3xl font-bold text-emerald-400" data-testid="total-savings">
+                    {fmt(outcomesData?.total_savings || 0)}<span className="text-lg text-emerald-400/60">/day</span>
+                  </div>
+                  <div className="text-lg font-semibold text-emerald-300/70">
+                    {fmtCompact((outcomesData?.total_savings || 0) * 365)}/yr annualised
+                  </div>
                   <div className="text-sm text-slate-500">{outcomesData?.verified_count || 0} outcomes verified</div>
                 </div>
                 {(outcomesData?.scaled_outcomes || []).length > 0 && (
                   <div className="mb-3 bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3" data-testid="scaled-outcomes">
-                    <div className="text-xs text-emerald-400 uppercase tracking-wider mb-2">Scalable Across Portfolio</div>
-                    {outcomesData.scaled_outcomes.map((so, idx) => (
-                      <div key={idx} className="flex items-center justify-between py-1">
-                        <span className="text-sm text-slate-300">
-                          <span className="text-emerald-400 font-semibold">{so.verified_savings} {so.savings_unit}</span>
-                          <span className="text-slate-500"> verified</span>
-                        </span>
-                        <span className="text-sm text-white font-semibold">
-                          &rarr; {so.scaled_potential} {so.scaled_potential_unit}
-                          <span className="text-xs text-slate-500 ml-1">({so.similar_assets_in_portfolio} similar)</span>
-                        </span>
-                      </div>
-                    ))}
+                    <div className="text-xs text-emerald-400 uppercase tracking-wider mb-2">Fleet-Scale Replication</div>
+                    {outcomesData.scaled_outcomes.map((so, idx) => {
+                      const fleetLabel = FLEET_TYPE_MAP[so.asset_class] || so.asset_class;
+                      const fleetCount = fleet?.asset_type_counts?.[fleetLabel] || so.similar_assets_in_portfolio;
+                      const dailyPerAsset = so.verified_savings;
+                      const annualFleet = dailyPerAsset * fleetCount * 365;
+                      return (
+                        <div key={idx} className="py-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-slate-300">
+                              <span className="text-emerald-400 font-semibold">{fmt(dailyPerAsset)}/day</span>
+                              <span className="text-slate-500"> validated</span>
+                            </span>
+                            <span className="text-sm text-white font-semibold">
+                              {fmtCompact(annualFleet)}/yr
+                            </span>
+                          </div>
+                          <div className="text-xs text-slate-500 mt-0.5">
+                            Replicated across {fleetCount} {fleetLabel.toLowerCase()}s across portfolio
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
                 {(outcomesData?.site_outcomes || []).map((so, idx) => (
                   <div key={idx} className="bg-slate-700/30 rounded-lg p-3 mb-2">
                     <div className="flex items-center justify-between">
                       <span className="text-sm text-white">{so.site_name}</span>
-                      <span className="text-sm font-semibold text-emerald-400">+{fmt(so.total_savings, 2)}</span>
+                      <span className="text-sm font-semibold text-emerald-400">+{fmt(so.total_savings)}/day</span>
                     </div>
-                    <div className="text-xs text-slate-500 mt-1">{so.verified_count} verified</div>
+                    <div className="text-xs text-slate-500 mt-1">{so.verified_count} verified &middot; {fmtCompact(so.total_savings * 365)}/yr</div>
                   </div>
                 ))}
               </div>
@@ -483,11 +523,14 @@ function PortfolioView({ portfolioData, analysisData, varTotal, recoverableTotal
                 </div>
                 <div className="p-5 space-y-4">
                   <BenchmarkBar label="Energy Intensity" unit={benchmarks.energy_intensity.unit}
-                    p25={benchmarks.energy_intensity.p25} p50={benchmarks.energy_intensity.p50} p75={benchmarks.energy_intensity.p75} />
+                    p25={benchmarks.energy_intensity.p25} p50={benchmarks.energy_intensity.p50} p75={benchmarks.energy_intensity.p75}
+                    interpretation={`P75 assets at top-quartile consumption. Closing gap to P50 = significant fleet-wide savings.`} />
                   <BenchmarkBar label="Runtime Ratio" unit=""
-                    p25={benchmarks.runtime_ratio.p25} p50={benchmarks.runtime_ratio.p50} p75={benchmarks.runtime_ratio.p75} />
+                    p25={benchmarks.runtime_ratio.p25} p50={benchmarks.runtime_ratio.p50} p75={benchmarks.runtime_ratio.p75}
+                    interpretation="P75 runtime indicates excess cycling or oversized equipment. Target P50 for optimal duty cycle." />
                   <BenchmarkBar label="Cycle Frequency" unit={benchmarks.cycle_frequency.unit}
-                    p25={benchmarks.cycle_frequency.p25} p50={benchmarks.cycle_frequency.p50} p75={benchmarks.cycle_frequency.p75} />
+                    p25={benchmarks.cycle_frequency.p25} p50={benchmarks.cycle_frequency.p50} p75={benchmarks.cycle_frequency.p75}
+                    interpretation="High cycle frequency accelerates wear. Reducing to P50 extends asset life and reduces maintenance costs." />
                 </div>
               </div>
             </section>
@@ -646,20 +689,33 @@ function OperatorView({ priorityMetrics, wsPriorities, isConnected, outcomesData
               </div>
               <div className="p-5">
                 <div className="text-xs text-slate-400 mb-1">Total Verified Savings</div>
-                <div className="text-3xl font-bold text-emerald-400 mb-1" data-testid="total-savings">{fmt(outcomesData?.total_savings || 0, 2)}</div>
+                <div className="text-3xl font-bold text-emerald-400 mb-0.5" data-testid="total-savings">
+                  {fmt(outcomesData?.total_savings || 0)}<span className="text-lg text-emerald-400/60">/day</span>
+                </div>
+                <div className="text-lg font-semibold text-emerald-300/70 mb-1">
+                  {fmtCompact((outcomesData?.total_savings || 0) * 365)}/yr annualised
+                </div>
                 <div className="text-sm text-slate-500 mb-3">{outcomesData?.verified_count || 0} outcomes verified</div>
-                {(outcomesData?.outcomes || []).slice(0, 3).map((o, i) => (
-                  <div key={i} className="bg-slate-700/30 rounded-lg p-3 mb-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-white">{o.asset_name || 'Asset'}</span>
-                      <span className="text-sm font-semibold text-emerald-400">+{o.savings_value} {o.savings_unit}</span>
+                {(outcomesData?.outcomes || []).slice(0, 3).map((o, i) => {
+                  const isFinancial = o.savings_unit?.includes('$');
+                  return (
+                    <div key={i} className="bg-slate-700/30 rounded-lg p-3 mb-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-white">{o.asset_name || 'Asset'}</span>
+                        <span className="text-sm font-semibold text-emerald-400">
+                          {isFinancial ? `+${fmt(o.savings_value)}/day` : `+${o.savings_value} ${o.savings_unit}`}
+                        </span>
+                      </div>
+                      {isFinancial && (
+                        <div className="text-xs text-emerald-300/60 text-right">{fmtCompact(o.savings_value * 365)}/yr annualised</div>
+                      )}
+                      <div className="flex items-center justify-between mt-1">
+                        <span className="text-xs text-slate-500">{timeAgo(o.verified_at)}</span>
+                        <span className={`text-xs capitalize ${CONFIDENCE_COLORS[o.confidence_band?.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>{o.confidence_band || 'Unknown'}</span>
+                      </div>
                     </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-xs text-slate-500">{timeAgo(o.verified_at)}</span>
-                      <span className={`text-xs capitalize ${CONFIDENCE_COLORS[o.confidence_band?.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>{o.confidence_band || 'Unknown'}</span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           </section>
@@ -784,7 +840,7 @@ function TrustMetric({ label, value, total, format, description, positive }) {
   );
 }
 
-function BenchmarkBar({ label, unit, p25, p50, p75 }) {
+function BenchmarkBar({ label, unit, p25, p50, p75, interpretation }) {
   const range = p75 - p25;
   const max = p75 + range * 0.5;
   const min = Math.max(0, p25 - range * 0.3);
@@ -810,6 +866,9 @@ function BenchmarkBar({ label, unit, p25, p50, p75 }) {
         <span className="text-emerald-400 font-medium">P50: {p50}</span>
         <span>P75: {p75}</span>
       </div>
+      {interpretation && (
+        <div className="text-xs text-slate-500 mt-1 italic">{interpretation}</div>
+      )}
     </div>
   );
 }

@@ -1,0 +1,89 @@
+{
+  "summary": "Iteration 14: Scaled Economics & Single-Industry Narrative - All 19 backend tests passed (100%). Frontend Portfolio and Operator views verified with correct scaled economics, single-industry narrative, annualized outcomes, benchmark interpretation, and connector narrative.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iteration14_scaled_economics.py",
+    "/app/test_reports/pytest/iteration14_scaled_economics_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "All economic values are enterprise-scale: VaR $30k+/day, 30-day opportunity $825k, annualized $9.9M",
+    "Single-industry narrative verified: All 8 sites are food/dairy/refrigeration (Dairy Processing, Meat & Poultry, Beverage Production, Frozen Foods, Cheese Production, Milk Powder, Seafood Processing, Cold Storage)",
+    "No forbidden industry terms (Chemical, Glass, Pharmaceutical) found in any API response or UI",
+    "Annualized financial terms present: '$12k/yr annualised' in outcomes, '$9.9M/yr total' in opportunities",
+    "Fleet-scale replication working: 'Replicated across 60 similar assets → $745k/yr portfolio impact'",
+    "Benchmark interpretation text present in UI (P75, P50, P25 with interpretation)",
+    "Connector narrative correct: 'Detected across portfolio assets → prioritised → resolved → verified → scaled across operations'"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iteration14_scaled_economics.py"
+  ],
+  "success_rate": {
+    "backend": "100% (19/19 tests passed)",
+    "frontend": "100% (all UI elements verified)"
+  },
+  "test_credentials": {
+    "admin": {"email": "rampadmin@gmail.com", "password": "RampAdmin2024!"},
+    "operator": {"email": "operator1@gmail.com", "password": "Operator2024!"},
+    "portfolio": {"email": "portfolio1@gmail.com", "password": "Portfolio2024!"}
+  },
+  "seed_data_creation": "Demo seed endpoints /api/system/demo/first-five-minutes and /api/system/demo/seed-portfolio create scaled economics data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Iteration 14 complete. All P0 'Demo Refinement — Rockwell Readiness' requirements verified: (1) Scale economics to enterprise level - VaR $30k+/day, IBA $825k/30-day, $9.9M/yr, (2) Single-industry narrative - all 8 sites are food/dairy/refrigeration, no Chemical/Glass/Pharma, (3) Annualized outcomes - $34/day ($12k/yr) verified savings with fleet replication $745k/yr, (4) Benchmark interpretation - P75/P50/P25 with interpretation text, (5) Connector narrative - 'Detected → prioritised → resolved → verified → scaled'",
+  "features_verified": {
+    "scaled_economics": {
+      "first_five_minutes_var": {
+        "screw_compressor": "$7,560/day",
+        "evaporator": "$2,125/day",
+        "condenser": "$945/day",
+        "total": "$10,630/day"
+      },
+      "seed_portfolio_priorities": {
+        "screw_compressor_2": "$17,000/day",
+        "cold_room_evaporator": "$2,750/day"
+      },
+      "iba_analysis": {
+        "30_day_opportunity": "$825,418",
+        "annualized": "$9,905,016"
+      },
+      "live_var": "$30,380/day"
+    },
+    "single_industry_narrative": {
+      "sites": [
+        "Dairy Processing Plant — Refrigeration",
+        "Meat & Poultry Facility — Cooling Operations",
+        "Beverage Production — Cold Chain",
+        "Frozen Foods Processing — Blast Cooling",
+        "Cheese Production Facility — Cooling",
+        "Milk Powder Plant — Process Cooling",
+        "Seafood Processing — Flash Freezing",
+        "Cold Storage Facility — Distribution"
+      ],
+      "forbidden_terms_absent": ["Chemical", "Glass", "Pharmaceutical", "Pharma"]
+    },
+    "annualized_outcomes": {
+      "verified_savings": "$34/day",
+      "annualized": "$12,410/yr",
+      "fleet_replication": "$745k/yr portfolio impact across 60 pump systems"
+    },
+    "benchmark_interpretation": {
+      "energy_intensity": "P75 assets at top-quartile consumption",
+      "runtime_ratio": "P75 runtime indicates excess cycling",
+      "cycle_frequency": "High cycle frequency accelerates wear"
+    },
+    "connector_narrative": {
+      "message": "Detected across portfolio assets → prioritised → resolved → verified → scaled across operations",
+      "active_detection": "Screw Compressor #2 CRITICAL $17,000/day",
+      "verified_proof": "Glycol Circulation Pump $34/day ($/day unit)"
+    }
+  }
+}
