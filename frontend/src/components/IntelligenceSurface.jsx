@@ -2,23 +2,26 @@
  * Industrial Intelligence Surface
  * ================================
  * 
- * Single-page unified dashboard for Rockwell demo.
- * Supports TWO modes from the SAME surface:
+ * Single-page unified dashboard — Rockwell demo.
+ * 
+ * TWO modes, ONE surface:
  * 
  * OPERATOR MODE (HOW lens):
- *   Asset/system level, action-focused
- *   WebSocket real-time priorities
+ *   Asset-level priorities, action-focused, WebSocket real-time
  * 
  * PORTFOLIO MODE (WHERE lens):
- *   Site-level aggregation
- *   Focus = "where to act"
- *   Ranked sites by VaR
+ *   Site-level aggregation with SCALE indicators:
+ *   - Portfolio economic banner (VaR + annual exposure + scaled opportunity)
+ *   - Replication logic ("where else does this apply?")
+ *   - Repeatability signals (recurring conditions)
+ *   - Scaled outcomes ("$X verified → scalable across Y similar assets")
+ *   - Inline site drill-down (top 3 priorities per site)
  * 
  * Answers in <60 seconds:
- * 1. Where is value being lost? (VaR View)
- * 2. What should I do? (Action Layer / Site Focus)
- * 3. What has been recovered? (Verified Outcomes)
- * 4. Is the system working? (Trust Indicators)
+ * 1. Where is value being lost?
+ * 2. What should I do?
+ * 3. What has been recovered — and how does it scale?
+ * 4. Is the system working?
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -51,6 +54,12 @@ const formatCurrency = (value, decimals = 0) => {
   })}`;
 };
 
+const formatCompact = (value) => {
+  if (value >= 1000000) return `$${(value / 1000000).toFixed(1)}M`;
+  if (value >= 1000) return `$${(value / 1000).toFixed(0)}k`;
+  return formatCurrency(value);
+};
+
 const timeAgo = (date) => {
   if (!date) return 'N/A';
   const now = new Date();
@@ -64,17 +73,20 @@ const timeAgo = (date) => {
   return `${diffDays}d ago`;
 };
 
+/* ========================================================================= */
+/* MAIN COMPONENT                                                            */
+/* ========================================================================= */
+
 export function IntelligenceSurface() {
   const { token, user, signOut, canAccessHOW, canAccessWHERE } = useAuth();
   const [metrics, setMetrics] = useState(null);
   const [portfolioData, setPortfolioData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [expandedPriority, setExpandedPriority] = useState(null);
+  const [expandedSite, setExpandedSite] = useState(null);
   
-  // Determine mode: portfolio users who can't access HOW get portfolio mode
   const isPortfolioMode = canAccessWHERE && !canAccessHOW;
   
-  // WebSocket for operator mode only
   const { 
     priorities: wsPriorities,
     isConnected,
@@ -83,69 +95,48 @@ export function IntelligenceSurface() {
     { autoConnect: canAccessHOW }
   );
 
-  // Fetch data based on mode
   useEffect(() => {
     const fetchData = async () => {
       if (!token) return;
-      
       try {
         if (isPortfolioMode) {
-          // Portfolio mode: single endpoint returns everything
           const res = await axios.get(`${API}/where/portfolio/intelligence`, {
             headers: { Authorization: `Bearer ${token}` }
           });
           setPortfolioData(res.data);
         } else {
-          // Operator mode: fetch from intelligence endpoints
           const [summaryRes, outcomesRes, trustRes] = await Promise.all([
-            axios.get(`${API}/intelligence/summary`, {
-              headers: { Authorization: `Bearer ${token}` }
-            }),
-            axios.get(`${API}/intelligence/outcomes`, {
-              headers: { Authorization: `Bearer ${token}` }
-            }),
-            axios.get(`${API}/intelligence/trust`, {
-              headers: { Authorization: `Bearer ${token}` }
-            }),
+            axios.get(`${API}/intelligence/summary`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API}/intelligence/outcomes`, { headers: { Authorization: `Bearer ${token}` } }),
+            axios.get(`${API}/intelligence/trust`, { headers: { Authorization: `Bearer ${token}` } }),
           ]);
-          setMetrics({
-            summary: summaryRes.data,
-            outcomes: outcomesRes.data,
-            trust: trustRes.data,
-          });
+          setMetrics({ summary: summaryRes.data, outcomes: outcomesRes.data, trust: trustRes.data });
         }
       } catch (e) {
         console.error('Failed to fetch intelligence data:', e);
         if (isPortfolioMode) {
-          setPortfolioData({ summary: { total_var: 0, total_recoverable: 0, site_count: 0, priority_count: 0 }, sites: [], outcomes: { total_savings: 0, verified_count: 0, site_outcomes: [] }, trust: { verification_rate: 0, actions_validated: 0, learning_improvement: 0 }, focus_site: null });
+          setPortfolioData({ summary: {}, sites: [], replication: { patterns: [] }, repeatability: { signals: [] }, outcomes: { total_savings: 0, verified_count: 0, site_outcomes: [], scaled_outcomes: [] }, trust: {}, focus_site: null });
         } else {
-          setMetrics({
-            summary: { total_var: 0, total_recoverable: 0, priority_count: 0 },
-            outcomes: { total_savings: 0, verified_count: 0, outcomes: [] },
-            trust: { verification_rate: 0, actions_validated: 0, learning_improvement: 0 },
-          });
+          setMetrics({ summary: {}, outcomes: { outcomes: [] }, trust: {} });
         }
       }
       setLoading(false);
     };
-    
     fetchData();
     const interval = setInterval(fetchData, 30000);
     return () => clearInterval(interval);
   }, [token, isPortfolioMode]);
 
-  // Calculate totals from WebSocket priorities (operator mode)
   const priorityMetrics = useMemo(() => {
     if (isPortfolioMode || !wsPriorities || wsPriorities.length === 0) {
       return { totalVAR: 0, totalRecoverable: 0, count: 0, distribution: {} };
     }
-    let totalVAR = 0;
-    let totalRecoverable = 0;
+    let totalVAR = 0, totalRecoverable = 0;
     const distribution = { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 };
     wsPriorities.forEach(p => {
-      const economic = p.economic_impact || {};
-      totalVAR += p.value_at_risk_per_day || economic.value_at_risk_per_day || 0;
-      totalRecoverable += p.value_recoverable_per_day || economic.value_recoverable_per_day || 0;
+      const eco = p.economic_impact || {};
+      totalVAR += p.value_at_risk_per_day || eco.value_at_risk_per_day || 0;
+      totalRecoverable += p.value_recoverable_per_day || eco.value_recoverable_per_day || 0;
       distribution[p.priority_band] = (distribution[p.priority_band] || 0) + 1;
     });
     return { totalVAR, totalRecoverable, count: wsPriorities.length, distribution };
@@ -159,26 +150,8 @@ export function IntelligenceSurface() {
     );
   }
 
-  // Resolve VaR values for the top section
-  const varTotal = isPortfolioMode 
-    ? portfolioData?.summary?.total_var || 0 
-    : priorityMetrics.totalVAR;
-  const recoverableTotal = isPortfolioMode 
-    ? portfolioData?.summary?.total_recoverable || 0 
-    : priorityMetrics.totalRecoverable;
-  const itemCount = isPortfolioMode 
-    ? portfolioData?.summary?.site_count || 0 
-    : priorityMetrics.count;
-  const totalDistribution = isPortfolioMode 
-    ? (portfolioData?.sites || []).reduce((acc, s) => {
-        Object.entries(s.distribution || {}).forEach(([band, count]) => {
-          acc[band] = (acc[band] || 0) + count;
-        });
-        return acc;
-      }, { CRITICAL: 0, HIGH: 0, MEDIUM: 0, LOW: 0 })
-    : priorityMetrics.distribution;
-
-  // Outcomes
+  const varTotal = isPortfolioMode ? (portfolioData?.summary?.total_var || 0) : priorityMetrics.totalVAR;
+  const recoverableTotal = isPortfolioMode ? (portfolioData?.summary?.total_recoverable || 0) : priorityMetrics.totalRecoverable;
   const outcomesData = isPortfolioMode ? portfolioData?.outcomes : metrics?.outcomes;
   const trustData = isPortfolioMode ? portfolioData?.trust : metrics?.trust;
 
@@ -201,16 +174,8 @@ export function IntelligenceSurface() {
               )}
             </div>
             <div className="flex items-center gap-4">
-              <span className="text-sm text-slate-400" data-testid="user-email">
-                {user?.email}
-              </span>
-              <button
-                onClick={signOut}
-                className="text-sm text-slate-400 hover:text-white"
-                data-testid="sign-out-btn"
-              >
-                Sign Out
-              </button>
+              <span className="text-sm text-slate-400" data-testid="user-email">{user?.email}</span>
+              <button onClick={signOut} className="text-sm text-slate-400 hover:text-white" data-testid="sign-out-btn">Sign Out</button>
             </div>
           </div>
         </div>
@@ -218,111 +183,153 @@ export function IntelligenceSurface() {
 
       <main className="max-w-7xl mx-auto px-6 py-6">
         
-        {/* ============================================ */}
-        {/* FOCUS SITE CALLOUT (Portfolio mode only)     */}
-        {/* ============================================ */}
-        {isPortfolioMode && portfolioData?.focus_site && (
-          <section className="mb-6" data-testid="focus-site-callout">
-            <div className="bg-gradient-to-r from-amber-900/40 via-amber-900/20 to-slate-800 rounded-xl border border-amber-600/30 p-5 flex items-center justify-between">
-              <div className="flex items-center gap-4">
-                <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center">
-                  <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
-                  </svg>
+        {/* ================================================================ */}
+        {/* PORTFOLIO: Focus Site + Economic Scale Banner                    */}
+        {/* ================================================================ */}
+        {isPortfolioMode && (
+          <>
+            {/* Focus Site Callout */}
+            {portfolioData?.focus_site && (
+              <section className="mb-5" data-testid="focus-site-callout">
+                <div className="bg-gradient-to-r from-amber-900/40 via-amber-900/20 to-slate-800 rounded-xl border border-amber-600/30 p-5 flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-amber-500/20 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15 10.5a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="text-xs text-amber-400 uppercase tracking-wider font-medium mb-0.5">Focus here first</div>
+                      <div className="text-lg font-semibold text-white" data-testid="focus-site-name">{portfolioData.focus_site.site_name}</div>
+                      <div className="text-sm text-slate-400">{portfolioData.focus_site.reason}</div>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-amber-400" data-testid="focus-site-var">
+                      {formatCurrency(portfolioData.focus_site.var_per_day)}<span className="text-sm text-amber-400/60">/day</span>
+                    </div>
+                    <div className="text-xs text-slate-400">value at risk</div>
+                  </div>
                 </div>
-                <div>
-                  <div className="text-xs text-amber-400 uppercase tracking-wider font-medium mb-0.5">
-                    Focus here first
+              </section>
+            )}
+
+            {/* Portfolio Economic Scale Banner */}
+            <section className="mb-5" data-testid="portfolio-scale-banner">
+              <div className="grid grid-cols-4 gap-3">
+                <div className="bg-gradient-to-br from-red-900/30 to-slate-800 rounded-xl border border-red-800/30 p-4">
+                  <div className="text-xs text-red-400 uppercase tracking-wider mb-1">Portfolio VaR</div>
+                  <div className="text-3xl font-bold text-red-400" data-testid="total-var">
+                    {formatCurrency(varTotal)}<span className="text-base text-red-400/60">/day</span>
                   </div>
-                  <div className="text-lg font-semibold text-white" data-testid="focus-site-name">
-                    {portfolioData.focus_site.site_name}
+                </div>
+                <div className="bg-gradient-to-br from-slate-800 to-slate-800/50 rounded-xl border border-slate-700 p-4">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Annual Exposure</div>
+                  <div className="text-3xl font-bold text-white" data-testid="annual-exposure">
+                    {formatCompact(portfolioData?.summary?.annual_exposure || 0)}
                   </div>
-                  <div className="text-sm text-slate-400">
-                    {portfolioData.focus_site.reason}
+                </div>
+                <div className="bg-gradient-to-br from-emerald-900/30 to-slate-800 rounded-xl border border-emerald-800/30 p-4">
+                  <div className="text-xs text-emerald-400 uppercase tracking-wider mb-1">Recoverable</div>
+                  <div className="text-3xl font-bold text-emerald-400" data-testid="total-recoverable">
+                    {formatCurrency(recoverableTotal)}<span className="text-base text-emerald-400/60">/day</span>
                   </div>
+                </div>
+                <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+                  <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Portfolio</div>
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-3xl font-bold text-white" data-testid="site-count">{portfolioData?.summary?.site_count || 0}</span>
+                    <span className="text-sm text-slate-400">sites</span>
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5">{portfolioData?.summary?.total_assets || 0} assets monitored</div>
                 </div>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold text-amber-400" data-testid="focus-site-var">
-                  {formatCurrency(portfolioData.focus_site.var_per_day)}
-                  <span className="text-sm text-amber-400/60">/day</span>
+            </section>
+          </>
+        )}
+
+        {/* ================================================================ */}
+        {/* OPERATOR: Standard VaR cards                                     */}
+        {/* ================================================================ */}
+        {!isPortfolioMode && (
+          <section className="mb-6" data-testid="var-section">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="bg-gradient-to-br from-red-900/30 to-slate-800 rounded-xl border border-red-800/30 p-5">
+                <div className="text-xs text-red-400 uppercase tracking-wider mb-1">Value at Risk</div>
+                <div className="text-4xl font-bold text-red-400" data-testid="total-var">
+                  {formatCurrency(varTotal)}<span className="text-lg text-red-400/60">/day</span>
                 </div>
-                <div className="text-xs text-slate-400">value at risk</div>
+                <div className="text-sm text-slate-400 mt-1">{formatCurrency(varTotal * 365)} annual exposure</div>
+              </div>
+              <div className="bg-gradient-to-br from-emerald-900/30 to-slate-800 rounded-xl border border-emerald-800/30 p-5">
+                <div className="text-xs text-emerald-400 uppercase tracking-wider mb-1">Recoverable Value</div>
+                <div className="text-4xl font-bold text-emerald-400" data-testid="total-recoverable">
+                  {formatCurrency(recoverableTotal)}<span className="text-lg text-emerald-400/60">/day</span>
+                </div>
+                <div className="text-sm text-slate-400 mt-1">
+                  {((recoverableTotal / (varTotal || 1)) * 100).toFixed(0)}% of VAR addressable
+                </div>
+              </div>
+              <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">Active Priorities</div>
+                <div className="text-4xl font-bold text-white" data-testid="item-count">{priorityMetrics.count}</div>
+                <div className="flex gap-2 mt-1">
+                  {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(band => (
+                    <span key={band} className={`px-1.5 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>
+                      {priorityMetrics.distribution[band] || 0}
+                    </span>
+                  ))}
+                </div>
               </div>
             </div>
           </section>
         )}
 
-        {/* ============================================ */}
-        {/* SECTION 1: WHERE IS VALUE BEING LOST? (VaR) */}
-        {/* ============================================ */}
-        <section className="mb-6" data-testid="var-section">
-          <div className="grid grid-cols-3 gap-4">
-            {/* Total VAR */}
-            <div className="bg-gradient-to-br from-red-900/30 to-slate-800 rounded-xl border border-red-800/30 p-5">
-              <div className="text-xs text-red-400 uppercase tracking-wider mb-1">
-                {isPortfolioMode ? 'Portfolio Value at Risk' : 'Value at Risk'}
-              </div>
-              <div className="text-4xl font-bold text-red-400" data-testid="total-var">
-                {formatCurrency(varTotal)}
-                <span className="text-lg text-red-400/60">/day</span>
-              </div>
-              <div className="text-sm text-slate-400 mt-1">
-                {formatCurrency(varTotal * 365)} annual exposure
-              </div>
-            </div>
-            
-            {/* Recoverable */}
-            <div className="bg-gradient-to-br from-emerald-900/30 to-slate-800 rounded-xl border border-emerald-800/30 p-5">
-              <div className="text-xs text-emerald-400 uppercase tracking-wider mb-1">
-                Recoverable Value
-              </div>
-              <div className="text-4xl font-bold text-emerald-400" data-testid="total-recoverable">
-                {formatCurrency(recoverableTotal)}
-                <span className="text-lg text-emerald-400/60">/day</span>
-              </div>
-              <div className="text-sm text-slate-400 mt-1">
-                {((recoverableTotal / (varTotal || 1)) * 100).toFixed(0)}% of VAR addressable
-              </div>
-            </div>
-            
-            {/* Count — Sites or Priorities depending on mode */}
-            <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-              <div className="text-xs text-slate-400 uppercase tracking-wider mb-2">
-                {isPortfolioMode ? 'Sites Monitored' : 'Active Priorities'}
-              </div>
-              <div className="text-4xl font-bold text-white" data-testid="item-count">
-                {itemCount}
-              </div>
-              {isPortfolioMode ? (
-                <div className="text-sm text-slate-400 mt-1">
-                  {portfolioData?.summary?.priority_count || 0} total priorities
-                </div>
-              ) : (
-                <div className="flex gap-2 mt-1">
-                  {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(band => (
-                    <div key={band} className="flex items-center gap-1">
-                      <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>
-                        {totalDistribution[band] || 0}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        </section>
-
         {/* Main Two-Column Layout */}
         <div className="grid grid-cols-5 gap-6">
           
-          {/* ============================================ */}
-          {/* SECTION 2: WHAT SHOULD I DO?                 */}
-          {/* Operator: Ranked asset priorities             */}
-          {/* Portfolio: Ranked sites by VaR                */}
-          {/* ============================================ */}
-          <section className="col-span-3" data-testid="actions-section">
+          {/* ================================================================ */}
+          {/* LEFT COLUMN: Sites (portfolio) or Priorities (operator)          */}
+          {/* ================================================================ */}
+          <section className="col-span-3 space-y-5" data-testid="actions-section">
+            
+            {/* PORTFOLIO: Repeatability Signal */}
+            {isPortfolioMode && (portfolioData?.repeatability?.signals || []).length > 0 && (
+              <div className="bg-slate-800/60 rounded-xl border border-slate-700/50 p-4" data-testid="repeatability-section">
+                <div className="text-xs text-slate-400 uppercase tracking-wider mb-3">Recurring Conditions Across Portfolio</div>
+                <div className="space-y-2">
+                  {portfolioData.repeatability.signals.map((sig, idx) => (
+                    <div key={idx} className="flex items-center justify-between bg-slate-700/20 rounded-lg px-4 py-2.5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                        <div>
+                          <span className="text-sm font-medium text-white">{sig.state_type}</span>
+                          <span className="text-xs text-slate-500 ml-2">({sig.state_family})</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-4 text-sm">
+                        <span className="text-slate-300">
+                          <span className="text-white font-semibold">{sig.total_occurrences}</span> occurrences
+                        </span>
+                        <span className="text-slate-400">across</span>
+                        <span className="text-slate-300">
+                          <span className="text-white font-semibold">{sig.distinct_sites}</span> site{sig.distinct_sites !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-slate-300">
+                          <span className="text-white font-semibold">{sig.distinct_assets}</span> asset{sig.distinct_assets !== 1 ? 's' : ''}
+                        </span>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                          Systemic
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Sites / Priorities List */}
             <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
               <div className="px-5 py-3 border-b border-slate-700 flex items-center justify-between">
                 <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wider">
@@ -333,9 +340,8 @@ export function IntelligenceSurface() {
                 </span>
               </div>
               
-              <div className="divide-y divide-slate-700/50 max-h-[480px] overflow-y-auto">
+              <div className="divide-y divide-slate-700/50">
                 {isPortfolioMode ? (
-                  // PORTFOLIO: Site cards
                   (portfolioData?.sites || []).length === 0 ? (
                     <div className="p-8 text-center text-slate-500">No sites in scope</div>
                   ) : (
@@ -345,15 +351,15 @@ export function IntelligenceSurface() {
                         site={site}
                         rank={idx + 1}
                         isFocus={portfolioData?.focus_site?.site_id === site.site_id}
+                        isExpanded={expandedSite === site.site_id}
+                        onToggle={() => setExpandedSite(expandedSite === site.site_id ? null : site.site_id)}
+                        replicationPatterns={portfolioData?.replication?.patterns || []}
                       />
                     ))
                   )
                 ) : (
-                  // OPERATOR: Priority cards
                   (wsPriorities?.length === 0) ? (
-                    <div className="p-8 text-center text-slate-500">
-                      No active priorities
-                    </div>
+                    <div className="p-8 text-center text-slate-500">No active priorities</div>
                   ) : (
                     wsPriorities?.map((priority, idx) => (
                       <PriorityCard
@@ -362,9 +368,7 @@ export function IntelligenceSurface() {
                         rank={idx + 1}
                         isExpanded={expandedPriority === (priority.priority_id || priority.id)}
                         onToggle={() => setExpandedPriority(
-                          expandedPriority === (priority.priority_id || priority.id) 
-                            ? null 
-                            : (priority.priority_id || priority.id)
+                          expandedPriority === (priority.priority_id || priority.id) ? null : (priority.priority_id || priority.id)
                         )}
                         token={token}
                       />
@@ -375,12 +379,12 @@ export function IntelligenceSurface() {
             </div>
           </section>
 
-          {/* Right Column */}
-          <div className="col-span-2 space-y-6">
+          {/* ================================================================ */}
+          {/* RIGHT COLUMN: Outcomes + Trust                                   */}
+          {/* ================================================================ */}
+          <div className="col-span-2 space-y-5">
             
-            {/* ============================================ */}
-            {/* SECTION 3: WHAT HAS BEEN RECOVERED?          */}
-            {/* ============================================ */}
+            {/* SECTION 3: Verified Outcomes (with scaling for portfolio) */}
             <section data-testid="outcomes-section">
               <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-700">
@@ -395,29 +399,58 @@ export function IntelligenceSurface() {
                       {isPortfolioMode ? 'Portfolio Verified Savings' : 'Total Verified Savings'}
                     </div>
                     <div className="text-3xl font-bold text-emerald-400" data-testid="total-savings">
-                      {formatCurrency(outcomesData?.total_savings || 0)}
+                      {formatCurrency(outcomesData?.total_savings || 0, 2)}
                     </div>
                     <div className="text-sm text-slate-500">
                       {outcomesData?.verified_count || 0} outcomes verified
                     </div>
                   </div>
                   
-                  {/* Recent Outcomes */}
+                  {/* Portfolio: Scaled Outcomes */}
+                  {isPortfolioMode && (outcomesData?.scaled_outcomes || []).length > 0 && (
+                    <div className="mb-4 bg-emerald-500/5 border border-emerald-500/20 rounded-lg p-3" data-testid="scaled-outcomes">
+                      <div className="text-xs text-emerald-400 uppercase tracking-wider mb-2">Scalable Impact</div>
+                      {outcomesData.scaled_outcomes.map((so, idx) => (
+                        <div key={idx} className="flex items-center justify-between py-1.5">
+                          <div className="text-sm text-slate-300">
+                            <span className="text-emerald-400 font-semibold">{so.verified_savings} {so.savings_unit}</span>
+                            <span className="text-slate-500"> verified</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <svg className="w-4 h-4 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                            </svg>
+                            <span className="text-sm text-white font-semibold">
+                              {so.scaled_potential} {so.scaled_potential_unit}
+                            </span>
+                            <span className="text-xs text-slate-500">
+                              across {so.similar_assets_in_portfolio} similar
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                      {outcomesData.total_scaled_potential > 0 && (
+                        <div className="mt-2 pt-2 border-t border-emerald-500/10 text-right">
+                          <span className="text-xs text-slate-400">Portfolio potential: </span>
+                          <span className="text-sm font-semibold text-emerald-400" data-testid="scaled-potential-total">
+                            {outcomesData.total_scaled_potential} {outcomesData.scaled_outcomes[0]?.scaled_potential_unit}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* Site / Asset outcomes */}
                   <div className="space-y-2">
                     {isPortfolioMode ? (
-                      // Portfolio: show per-site outcomes
                       (outcomesData?.site_outcomes || []).length === 0 ? (
-                        <div className="text-center py-4 text-slate-500 text-sm">
-                          No verified outcomes yet
-                        </div>
+                        <div className="text-center py-4 text-slate-500 text-sm">No verified outcomes yet</div>
                       ) : (
                         (outcomesData?.site_outcomes || []).map((so, idx) => (
                           <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-white">{so.site_name}</span>
-                              <span className="text-sm font-semibold text-emerald-400">
-                                +{formatCurrency(so.total_savings, 2)}
-                              </span>
+                              <span className="text-sm font-semibold text-emerald-400">+{formatCurrency(so.total_savings, 2)}</span>
                             </div>
                             <div className="text-xs text-slate-500 mt-1">
                               {so.verified_count} verified outcome{so.verified_count !== 1 ? 's' : ''}
@@ -426,24 +459,17 @@ export function IntelligenceSurface() {
                         ))
                       )
                     ) : (
-                      // Operator: show individual outcomes
                       (outcomesData?.outcomes || []).length === 0 ? (
-                        <div className="text-center py-4 text-slate-500 text-sm">
-                          No verified outcomes yet
-                        </div>
+                        <div className="text-center py-4 text-slate-500 text-sm">No verified outcomes yet</div>
                       ) : (
                         (outcomesData?.outcomes || []).slice(0, 3).map((outcome, idx) => (
                           <div key={idx} className="bg-slate-700/30 rounded-lg p-3">
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-white">{outcome.asset_name || 'Asset'}</span>
-                              <span className="text-sm font-semibold text-emerald-400">
-                                +{outcome.savings_value} {outcome.savings_unit}
-                              </span>
+                              <span className="text-sm font-semibold text-emerald-400">+{outcome.savings_value} {outcome.savings_unit}</span>
                             </div>
                             <div className="flex items-center justify-between mt-1">
-                              <span className="text-xs text-slate-500">
-                                {timeAgo(outcome.verified_at)}
-                              </span>
+                              <span className="text-xs text-slate-500">{timeAgo(outcome.verified_at)}</span>
                               <span className={`text-xs capitalize ${CONFIDENCE_COLORS[outcome.confidence_band?.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>
                                 {outcome.confidence_band || 'Unknown'} confidence
                               </span>
@@ -457,41 +483,49 @@ export function IntelligenceSurface() {
               </div>
             </section>
 
-            {/* ============================================ */}
-            {/* SECTION 4: IS THE SYSTEM WORKING? (Trust)    */}
-            {/* ============================================ */}
+            {/* SECTION 4: System Trust */}
             <section data-testid="trust-section">
               <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
                 <div className="px-5 py-3 border-b border-slate-700">
-                  <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wider">
-                    System Trust
-                  </h2>
+                  <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wider">System Trust</h2>
                 </div>
-                
                 <div className="p-5 space-y-4">
-                  <TrustMetric
-                    label="Verification Rate"
-                    value={trustData?.verification_rate || 0}
-                    format="percent"
-                    description={isPortfolioMode ? "Actions verified across portfolio" : "Actions that reached verified outcome"}
-                  />
-                  <TrustMetric
-                    label="Actions Validated"
-                    value={trustData?.actions_validated || 0}
-                    total={trustData?.total_actions || 0}
-                    format="ratio"
-                    description="Interventions with confirmed impact"
-                  />
-                  <TrustMetric
-                    label="Learning Active"
-                    value={trustData?.learning_improvement || 0}
-                    format="percent"
-                    description="Outcomes improving baseline accuracy"
-                    positive={true}
-                  />
+                  <TrustMetric label="Verification Rate" value={trustData?.verification_rate || 0} format="percent"
+                    description={isPortfolioMode ? "Actions verified across portfolio" : "Actions that reached verified outcome"} />
+                  <TrustMetric label="Actions Validated" value={trustData?.actions_validated || 0} total={trustData?.total_actions || 0}
+                    format="ratio" description="Interventions with confirmed impact" />
+                  <TrustMetric label="Learning Active" value={trustData?.learning_improvement || 0} format="percent"
+                    description="Outcomes improving baseline accuracy" positive={true} />
                 </div>
               </div>
             </section>
+
+            {/* PORTFOLIO: Replication Insight */}
+            {isPortfolioMode && (portfolioData?.replication?.patterns || []).length > 0 && (
+              <section data-testid="replication-section">
+                <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
+                  <div className="px-5 py-3 border-b border-slate-700">
+                    <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wider">Replication Opportunity</h2>
+                  </div>
+                  <div className="p-5 space-y-2">
+                    {portfolioData.replication.patterns.slice(0, 4).map((p, idx) => (
+                      <div key={idx} className="flex items-center justify-between bg-slate-700/20 rounded-lg px-3 py-2">
+                        <div>
+                          <div className="text-sm text-white">{p.asset_class} &mdash; {p.state_type}</div>
+                          <div className="text-xs text-slate-500">
+                            {p.affected_assets} asset{p.affected_assets !== 1 ? 's' : ''} affected
+                            {p.affected_sites > 1 && ` across ${p.affected_sites} sites`}
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-semibold text-amber-400">{formatCurrency(p.combined_var_per_day)}/day</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </main>
@@ -501,7 +535,9 @@ export function IntelligenceSurface() {
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs text-slate-500">
           <span>RAMP Industrial Intelligence</span>
           {isPortfolioMode ? (
-            <span className="text-slate-500">Portfolio view</span>
+            <span className="text-slate-500">
+              {portfolioData?.summary?.site_count || 0} sites &middot; {portfolioData?.summary?.total_assets || 0} assets &middot; Portfolio view
+            </span>
           ) : (
             <ConnectionIndicator showLabel={true} />
           )}
@@ -511,82 +547,112 @@ export function IntelligenceSurface() {
   );
 }
 
-/**
- * Site Card — Portfolio mode
- * Replaces PriorityCard for portfolio users
- */
-function SiteCard({ site, rank, isFocus }) {
+
+/* ========================================================================= */
+/* SITE CARD — Portfolio mode with inline drill-down                         */
+/* ========================================================================= */
+
+function SiteCard({ site, rank, isFocus, isExpanded, onToggle, replicationPatterns }) {
   const totalPriorities = Object.values(site.distribution || {}).reduce((a, b) => a + b, 0);
+  
+  // Find replication patterns relevant to this site's asset classes
+  const topPriorities = site.top_priorities || [];
   
   return (
     <div 
-      className={`px-5 py-4 transition-colors ${
-        isFocus 
-          ? 'bg-amber-500/5 border-l-2 border-l-amber-500' 
-          : 'hover:bg-slate-700/20'
+      className={`transition-colors cursor-pointer ${
+        isFocus ? 'bg-amber-500/5' : 'hover:bg-slate-700/20'
       }`}
+      onClick={onToggle}
       data-testid={`site-card-${rank}`}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-3">
-          <span className="text-xl font-bold text-slate-600 w-8">#{rank}</span>
-          <div>
-            <div className="flex items-center gap-2">
-              {site.top_priority_band && (
-                <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[site.top_priority_band]}`}>
-                  {site.top_priority_band}
-                </span>
-              )}
-              <span className="font-medium text-white" data-testid={`site-name-${rank}`}>
-                {site.site_name}
-              </span>
-              {isFocus && (
-                <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30" data-testid="focus-badge">
-                  Focus
-                </span>
-              )}
+      <div className={`px-5 py-4 ${isFocus ? 'border-l-2 border-l-amber-500' : ''}`}>
+        <div className="flex items-start justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-xl font-bold text-slate-600 w-8">#{rank}</span>
+            <div>
+              <div className="flex items-center gap-2">
+                {site.top_priority_band && (
+                  <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[site.top_priority_band]}`}>
+                    {site.top_priority_band}
+                  </span>
+                )}
+                <span className="font-medium text-white" data-testid={`site-name-${rank}`}>{site.site_name}</span>
+                {isFocus && (
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30" data-testid="focus-badge">Focus</span>
+                )}
+              </div>
+              <div className="text-sm text-slate-400 mt-0.5">
+                {totalPriorities} active priorit{totalPriorities !== 1 ? 'ies' : 'y'}
+              </div>
             </div>
-            <div className="text-sm text-slate-400 mt-0.5">
-              {totalPriorities} active priorit{totalPriorities !== 1 ? 'ies' : 'y'}
+          </div>
+          
+          <div className="text-right">
+            <div className="text-lg font-semibold text-amber-400">
+              {formatCurrency(site.var_per_day)}<span className="text-xs text-slate-400">/day</span>
             </div>
+            <div className="text-xs text-slate-400">{formatCurrency(site.recoverable_per_day)} recoverable</div>
           </div>
         </div>
         
-        <div className="text-right">
-          <div className="text-lg font-semibold text-amber-400">
-            {formatCurrency(site.var_per_day)}<span className="text-xs text-slate-400">/day</span>
+        {/* Distribution badges */}
+        {totalPriorities > 0 && (
+          <div className="mt-2 ml-11 flex gap-2">
+            {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(band => {
+              const count = site.distribution?.[band] || 0;
+              if (count === 0) return null;
+              return (
+                <div key={band} className="flex items-center gap-1">
+                  <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>{count}</span>
+                  <span className="text-xs text-slate-500">{band.toLowerCase()}</span>
+                </div>
+              );
+            })}
           </div>
-          <div className="text-xs text-slate-400">
-            {formatCurrency(site.recoverable_per_day)} recoverable
-          </div>
+        )}
+        
+        <div className="mt-2 ml-11 text-xs text-slate-500">
+          {isExpanded ? 'Collapse' : 'View priorities'}
         </div>
       </div>
       
-      {/* Priority distribution mini-bar */}
-      {totalPriorities > 0 && (
-        <div className="mt-3 ml-11 flex gap-2">
-          {['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].map(band => {
-            const count = site.distribution?.[band] || 0;
-            if (count === 0) return null;
-            return (
-              <div key={band} className="flex items-center gap-1">
-                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[band]}`}>
-                  {count}
+      {/* Inline Drill-Down: Top priorities for this site */}
+      {isExpanded && topPriorities.length > 0 && (
+        <div className="mx-5 mb-4 ml-16 border-l-2 border-slate-600 pl-4 space-y-2" data-testid={`site-drilldown-${rank}`}>
+          <div className="text-xs text-slate-400 uppercase tracking-wider mb-1">Top priorities at this site</div>
+          {topPriorities.map((p, idx) => (
+            <div key={idx} className="flex items-center justify-between bg-slate-700/20 rounded-lg px-3 py-2">
+              <div className="flex items-center gap-2">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[p.priority_band]}`}>
+                  {p.priority_band}
                 </span>
-                <span className="text-xs text-slate-500">{band.toLowerCase()}</span>
+                <div>
+                  <div className="text-sm text-white">{p.asset_name}</div>
+                  <div className="text-xs text-slate-500">{p.driver}</div>
+                </div>
               </div>
-            );
-          })}
+              <div className="text-right shrink-0 ml-3">
+                <div className="text-sm font-semibold text-amber-400">{formatCurrency(p.var_per_day)}<span className="text-xs text-slate-400">/day</span></div>
+                {p.confidence && (
+                  <div className={`text-xs capitalize ${CONFIDENCE_COLORS[p.confidence?.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>
+                    {p.confidence} confidence
+                  </div>
+                )}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-/**
- * Priority Card — Operator mode
- * With expandable traceability
- */
+
+/* ========================================================================= */
+/* PRIORITY CARD — Operator mode with traceability                           */
+/* ========================================================================= */
+
 function PriorityCard({ priority, rank, isExpanded, onToggle, token }) {
   const [traceData, setTraceData] = useState(null);
   const [loadingTrace, setLoadingTrace] = useState(false);
@@ -598,9 +664,7 @@ function PriorityCard({ priority, rank, isExpanded, onToggle, token }) {
   useEffect(() => {
     if (isExpanded && !traceData && !loadingTrace) {
       setLoadingTrace(true);
-      axios.get(`${API}/intelligence/trace/${priority.state_id}`, {
-        headers: { Authorization: `Bearer ${token}` }
-      })
+      axios.get(`${API}/intelligence/trace/${priority.state_id}`, { headers: { Authorization: `Bearer ${token}` } })
         .then(res => setTraceData(res.data))
         .catch(() => setTraceData({ state: priority, intervention: null, outcome: null }))
         .finally(() => setLoadingTrace(false));
@@ -608,36 +672,21 @@ function PriorityCard({ priority, rank, isExpanded, onToggle, token }) {
   }, [isExpanded, traceData, loadingTrace, priority, token]);
 
   return (
-    <div 
-      className="px-5 py-4 hover:bg-slate-700/20 cursor-pointer transition-colors"
-      onClick={onToggle}
-      data-testid={`priority-card-${rank}`}
-    >
+    <div className="px-5 py-4 hover:bg-slate-700/20 cursor-pointer transition-colors" onClick={onToggle} data-testid={`priority-card-${rank}`}>
       <div className="flex items-start justify-between">
         <div className="flex items-center gap-3">
           <span className="text-xl font-bold text-slate-600 w-8">#{rank}</span>
           <div>
             <div className="flex items-center gap-2">
-              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[priority.priority_band]}`}>
-                {priority.priority_band}
-              </span>
-              <span className="font-medium text-white">
-                {priority.asset_name || priority.asset_id}
-              </span>
+              <span className={`px-2 py-0.5 rounded text-xs font-semibold ${BAND_COLORS[priority.priority_band]}`}>{priority.priority_band}</span>
+              <span className="font-medium text-white">{priority.asset_name || priority.asset_id}</span>
             </div>
-            <div className="text-sm text-slate-400 mt-0.5">
-              {priority.drivers?.[0] || priority.state_type || 'Active condition'}
-            </div>
+            <div className="text-sm text-slate-400 mt-0.5">{priority.drivers?.[0] || priority.state_type || 'Active condition'}</div>
           </div>
         </div>
-        
         <div className="text-right">
-          <div className="text-lg font-semibold text-amber-400">
-            {formatCurrency(var_value)}<span className="text-xs text-slate-400">/day</span>
-          </div>
-          <div className={`text-xs capitalize ${CONFIDENCE_COLORS[confidence.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>
-            {confidence} confidence
-          </div>
+          <div className="text-lg font-semibold text-amber-400">{formatCurrency(var_value)}<span className="text-xs text-slate-400">/day</span></div>
+          <div className={`text-xs capitalize ${CONFIDENCE_COLORS[confidence.toLowerCase()] || CONFIDENCE_COLORS.unknown}`}>{confidence} confidence</div>
         </div>
       </div>
       
@@ -647,47 +696,28 @@ function PriorityCard({ priority, rank, isExpanded, onToggle, token }) {
             <div className="text-slate-500 text-sm">Loading trace...</div>
           ) : (
             <>
-              <TraceStep
-                label="State Detected"
-                time={traceData?.state?.started_at || priority.created_at}
-                detail={`${priority.state_type || 'Condition'} identified`}
-                status="complete"
-              />
-              <TraceStep
-                label="Priority Created"
-                time={priority.created_at}
-                detail={`${priority.priority_band} - Score ${priority.priority_score || 0}`}
-                status="complete"
-              />
-              <TraceStep
-                label="Intervention"
-                time={traceData?.intervention?.created_at}
-                detail={traceData?.intervention 
-                  ? `${traceData.intervention.intervention_type} by ${traceData.intervention.created_by}`
-                  : 'Awaiting action'
-                }
-                status={traceData?.intervention ? 'complete' : 'pending'}
-              />
-              <TraceStep
-                label="Outcome Verified"
-                time={traceData?.outcome?.verified_at}
-                detail={traceData?.outcome 
-                  ? `${traceData.outcome.savings_value} ${traceData.outcome.savings_unit} saved`
-                  : 'Pending verification'
-                }
-                status={traceData?.outcome ? 'complete' : 'pending'}
-              />
+              <TraceStep label="State Detected" time={traceData?.state?.started_at || priority.created_at} detail={`${priority.state_type || 'Condition'} identified`} status="complete" />
+              <TraceStep label="Priority Created" time={priority.created_at} detail={`${priority.priority_band} - Score ${priority.priority_score || 0}`} status="complete" />
+              <TraceStep label="Intervention" time={traceData?.intervention?.created_at}
+                detail={traceData?.intervention ? `${traceData.intervention.intervention_type} by ${traceData.intervention.created_by}` : 'Awaiting action'}
+                status={traceData?.intervention ? 'complete' : 'pending'} />
+              <TraceStep label="Outcome Verified" time={traceData?.outcome?.verified_at}
+                detail={traceData?.outcome ? `${traceData.outcome.savings_value} ${traceData.outcome.savings_unit} saved` : 'Pending verification'}
+                status={traceData?.outcome ? 'complete' : 'pending'} />
             </>
           )}
         </div>
       )}
       
-      <div className="mt-2 ml-11 text-xs text-slate-500">
-        {isExpanded ? 'Collapse' : 'View trace'}
-      </div>
+      <div className="mt-2 ml-11 text-xs text-slate-500">{isExpanded ? 'Collapse' : 'View trace'}</div>
     </div>
   );
 }
+
+
+/* ========================================================================= */
+/* SMALL COMPONENTS                                                          */
+/* ========================================================================= */
 
 function TraceStep({ label, time, detail, status }) {
   const isComplete = status === 'complete';
@@ -696,9 +726,7 @@ function TraceStep({ label, time, detail, status }) {
       <div className={`w-2 h-2 rounded-full mt-1.5 ${isComplete ? 'bg-emerald-400' : 'bg-slate-600'}`} />
       <div className="flex-1">
         <div className="flex items-center justify-between">
-          <span className={`text-sm font-medium ${isComplete ? 'text-white' : 'text-slate-400'}`}>
-            {label}
-          </span>
+          <span className={`text-sm font-medium ${isComplete ? 'text-white' : 'text-slate-400'}`}>{label}</span>
           {time && <span className="text-xs text-slate-500">{timeAgo(time)}</span>}
         </div>
         <div className="text-xs text-slate-400">{detail}</div>
@@ -709,28 +737,19 @@ function TraceStep({ label, time, detail, status }) {
 
 function TrustMetric({ label, value, total, format, description, positive }) {
   let displayValue;
-  if (format === 'percent') {
-    displayValue = `${(value * 100).toFixed(0)}%`;
-  } else if (format === 'ratio' && total !== undefined) {
-    displayValue = `${value}/${total}`;
-  } else {
-    displayValue = value;
-  }
+  if (format === 'percent') displayValue = `${(value * 100).toFixed(0)}%`;
+  else if (format === 'ratio' && total !== undefined) displayValue = `${value}/${total}`;
+  else displayValue = value;
   
   return (
     <div>
       <div className="flex items-center justify-between mb-1">
         <span className="text-sm text-slate-300">{label}</span>
-        <span className={`text-lg font-semibold ${positive ? 'text-emerald-400' : 'text-white'}`}>
-          {displayValue}
-        </span>
+        <span className={`text-lg font-semibold ${positive ? 'text-emerald-400' : 'text-white'}`}>{displayValue}</span>
       </div>
       {format === 'percent' && (
         <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-          <div 
-            className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-slate-400'}`}
-            style={{ width: `${Math.min(value * 100, 100)}%` }}
-          />
+          <div className={`h-full rounded-full ${positive ? 'bg-emerald-500' : 'bg-slate-400'}`} style={{ width: `${Math.min(value * 100, 100)}%` }} />
         </div>
       )}
       <div className="text-xs text-slate-500 mt-1">{description}</div>

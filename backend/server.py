@@ -1934,20 +1934,205 @@ async def get_portfolio_intelligence(
         verification_rate = (verified_outcomes / total_interventions) if total_interventions > 0 else 0
         learning_improvement = min(0.85, 0.5 + (verified_outcomes * 0.1)) if verified_outcomes > 0 else 0
         
+        # =====================================================================
+        # REPLICATION: "Where else does this apply?" per condition type
+        # =====================================================================
+        replication_query = text("""
+            SELECT
+                s.state_family,
+                s.state_type,
+                a.asset_class,
+                COUNT(DISTINCT a.id) as affected_assets,
+                COUNT(DISTINCT sys.site_id) as affected_sites,
+                COUNT(DISTINCT s.id) as occurrence_count,
+                COALESCE(SUM((p.economic_impact->>'value_at_risk_per_day')::numeric), 0) as total_var
+            FROM ramp_states s
+            JOIN ramp_assets a ON s.asset_id = a.id
+            JOIN ramp_systems sys ON a.system_id = sys.id
+            LEFT JOIN ramp_priorities p ON p.state_id = s.id AND p.expires_at IS NULL
+            WHERE s.ended_at IS NULL
+        """ + (" AND sys.site_id = ANY(:site_ids)" if not is_admin_all else "") + """
+            GROUP BY s.state_family, s.state_type, a.asset_class
+            ORDER BY total_var DESC
+        """)
+        rep_params = {"site_ids": site_filter or []} if not is_admin_all else {}
+        replication_result = await db.session.execute(replication_query, rep_params)
+        
+        replication_patterns = []
+        for row in replication_result.fetchall():
+            pattern_var = float(row[6])
+            replication_patterns.append({
+                "condition": f"{row[0]}:{row[1]}",
+                "state_family": row[0],
+                "state_type": row[1],
+                "asset_class": row[2],
+                "affected_assets": row[3],
+                "affected_sites": row[4],
+                "occurrence_count": row[5],
+                "combined_var_per_day": round(pattern_var, 2),
+            })
+        
+        # =====================================================================
+        # REPEATABILITY: How often do these conditions recur? (historical)
+        # =====================================================================
+        repeatability_query = text("""
+            SELECT
+                s.state_family,
+                s.state_type,
+                COUNT(*) as total_occurrences,
+                COUNT(DISTINCT a.id) as distinct_assets,
+                COUNT(DISTINCT sys.site_id) as distinct_sites,
+                MIN(s.started_at) as first_seen,
+                MAX(s.started_at) as last_seen
+            FROM ramp_states s
+            JOIN ramp_assets a ON s.asset_id = a.id
+            JOIN ramp_systems sys ON a.system_id = sys.id
+        """ + (" WHERE sys.site_id = ANY(:site_ids)" if not is_admin_all else "") + """
+            GROUP BY s.state_family, s.state_type
+            HAVING COUNT(*) > 1
+            ORDER BY COUNT(*) DESC
+        """)
+        repeat_result = await db.session.execute(repeatability_query, rep_params)
+        
+        repeatability_signals = []
+        for row in repeat_result.fetchall():
+            repeatability_signals.append({
+                "condition": f"{row[0]}:{row[1]}",
+                "state_family": row[0],
+                "state_type": row[1],
+                "total_occurrences": row[2],
+                "distinct_assets": row[3],
+                "distinct_sites": row[4],
+                "first_seen": row[5].isoformat() if row[5] else None,
+                "last_seen": row[6].isoformat() if row[6] else None,
+                "recurring": row[2] > 1,
+            })
+        
+        # =====================================================================
+        # SCALING: Portfolio-level economic projection
+        # =====================================================================
+        # Count total assets by class across portfolio for replication scaling
+        asset_class_query = text("""
+            SELECT a.asset_class, COUNT(*) as total_count
+            FROM ramp_assets a
+            JOIN ramp_systems sys ON a.system_id = sys.id
+        """ + (" WHERE sys.site_id = ANY(:site_ids)" if not is_admin_all else "") + """
+            GROUP BY a.asset_class
+        """)
+        asset_class_result = await db.session.execute(asset_class_query, rep_params)
+        asset_class_counts = {row[0]: row[1] for row in asset_class_result.fetchall()}
+        total_portfolio_assets = sum(asset_class_counts.values())
+        
+        # Calculate scaled opportunity: for each verified outcome, project across similar assets
+        scaled_outcomes = []
+        for so in site_outcomes:
+            site_id = so["site_id"]
+            # Get asset classes at this site that had verified outcomes
+            site_outcome_query = text("""
+                SELECT DISTINCT a.asset_class, o.savings_value, o.savings_unit
+                FROM ramp_outcomes o
+                JOIN ramp_interventions i ON o.intervention_id = i.id
+                JOIN ramp_assets a ON i.asset_id = a.id
+                JOIN ramp_systems sys ON a.system_id = sys.id
+                WHERE o.status = 'VERIFIED' AND sys.site_id = :site_id
+            """)
+            site_res = await db.session.execute(site_outcome_query, {"site_id": site_id})
+            for orow in site_res.fetchall():
+                asset_class = orow[0]
+                savings_val = float(orow[1]) if orow[1] else 0
+                similar_assets = asset_class_counts.get(asset_class, 1)
+                scaled_outcomes.append({
+                    "asset_class": asset_class,
+                    "verified_savings": round(savings_val, 2),
+                    "savings_unit": orow[2],
+                    "similar_assets_in_portfolio": similar_assets,
+                    "scaled_potential": round(savings_val * similar_assets, 2),
+                    "scaled_potential_unit": orow[2],
+                })
+        
+        annual_exposure = round(total_var * 365, 2)
+        annual_recoverable = round(total_recoverable * 365, 2)
+        
+        # =====================================================================
+        # SITE DRILL-DOWN: Top 3 priorities per site
+        # =====================================================================
+        site_priorities_query = text("""
+            SELECT
+                sys.site_id,
+                p.id as priority_id,
+                p.priority_band,
+                p.priority_score,
+                p.drivers,
+                (p.economic_impact->>'value_at_risk_per_day')::numeric as var_per_day,
+                a.name as asset_name,
+                s.state_family,
+                s.state_type,
+                s.confidence_band
+            FROM ramp_priorities p
+            JOIN ramp_assets a ON p.asset_id = a.id
+            JOIN ramp_systems sys ON a.system_id = sys.id
+            LEFT JOIN ramp_states s ON p.state_id = s.id
+            WHERE p.expires_at IS NULL
+        """ + (" AND sys.site_id = ANY(:site_ids)" if not is_admin_all else "") + """
+            ORDER BY sys.site_id, p.priority_score DESC
+        """)
+        site_pri_result = await db.session.execute(site_priorities_query, rep_params)
+        
+        site_top_priorities = {}
+        for row in site_pri_result.fetchall():
+            sid = row[0]
+            if sid not in site_top_priorities:
+                site_top_priorities[sid] = []
+            if len(site_top_priorities[sid]) < 3:
+                drivers_raw = row[4]
+                if isinstance(drivers_raw, str):
+                    try:
+                        drivers_raw = json.loads(drivers_raw)
+                    except Exception:
+                        drivers_raw = [drivers_raw]
+                site_top_priorities[sid].append({
+                    "priority_id": str(row[1]),
+                    "priority_band": row[2],
+                    "priority_score": float(row[3]) if row[3] else 0,
+                    "driver": drivers_raw[0] if drivers_raw and len(drivers_raw) > 0 else "Active condition",
+                    "var_per_day": round(float(row[5]), 2) if row[5] else 0,
+                    "asset_name": row[6],
+                    "state_type": f"{row[7]}:{row[8]}" if row[7] else None,
+                    "confidence": row[9],
+                })
+        
+        # Attach top priorities to site data
+        for site in sites:
+            site["top_priorities"] = site_top_priorities.get(site["site_id"], [])
+        
         return {
             "mode": "portfolio",
             "summary": {
                 "total_var": round(total_var, 2),
                 "total_recoverable": round(total_recoverable, 2),
+                "annual_exposure": annual_exposure,
+                "annual_recoverable": annual_recoverable,
                 "site_count": len(sites),
                 "priority_count": total_priorities,
+                "total_assets": total_portfolio_assets,
                 "currency": "USD",
             },
             "sites": sites,
+            "replication": {
+                "patterns": replication_patterns,
+                "total_affected_assets": sum(p["affected_assets"] for p in replication_patterns),
+                "cross_site_conditions": sum(1 for p in replication_patterns if p["affected_sites"] > 1),
+            },
+            "repeatability": {
+                "signals": repeatability_signals,
+                "recurring_conditions": len(repeatability_signals),
+            },
             "outcomes": {
                 "total_savings": round(portfolio_total_savings, 2),
                 "verified_count": portfolio_verified_count,
                 "site_outcomes": site_outcomes,
+                "scaled_outcomes": scaled_outcomes,
+                "total_scaled_potential": round(sum(s["scaled_potential"] for s in scaled_outcomes), 2),
             },
             "trust": {
                 "verification_rate": round(verification_rate, 2),

@@ -1,0 +1,110 @@
+{
+  "summary": "Portfolio Commercial Features testing complete. All 11 requested features verified working correctly. Backend API tests (23/23 passed) and frontend UI tests (all scenarios passed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_portfolio_commercial_features.py",
+    "/app/test_reports/pytest/portfolio_commercial_features_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Portfolio API correctly returns enhanced data structure with summary.annual_exposure, summary.annual_recoverable, summary.total_assets",
+    "Replication patterns correctly show asset-class breakdown with VaR per pattern",
+    "Repeatability signals correctly identify DRIFT as recurring (5 occurrences, 2 sites, 5 assets)",
+    "Scaled outcomes correctly calculate verified_savings * similar_assets_in_portfolio",
+    "Site drill-down correctly shows top 3 priorities per site with inline expansion",
+    "Collapse functionality works correctly - clicking expanded site card collapses drill-down",
+    "Operator mode unchanged - no portfolio elements visible, shows ranked priorities with WebSocket Live indicator",
+    "Admin mode correctly shows operator view (not portfolio view) since admin has both HOW and WHERE lenses"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_portfolio_commercial_features.py"
+  ],
+  "success_rate": {
+    "backend": "100% (23/23 tests passed)",
+    "frontend": "100% (all UI scenarios verified)"
+  },
+  "test_credentials": {
+    "admin": {
+      "email": "rampadmin@gmail.com",
+      "password": "RampAdmin2024!",
+      "lens_access": {"how": true, "where": true},
+      "expected_mode": "operator"
+    },
+    "operator": {
+      "email": "operator1@gmail.com",
+      "password": "Operator2024!",
+      "lens_access": {"how": true, "where": false},
+      "expected_mode": "operator"
+    },
+    "portfolio": {
+      "email": "portfolio1@gmail.com",
+      "password": "Portfolio2024!",
+      "lens_access": {"how": false, "where": true},
+      "expected_mode": "portfolio"
+    }
+  },
+  "seed_data_creation": "Demo seed endpoints /api/system/demo/first-five-minutes and /api/system/demo/seed-portfolio create multi-site data",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Portfolio Commercial Features fully working. All 11 features verified: (A) Scale Banner with annual_exposure $222k, (B) Replication patterns with VaR per asset-class, (C) Repeatability signals showing DRIFT as Systemic, (D) Scaled outcomes projecting savings across similar assets, (E) Site drill-down with top 3 priorities inline. Operator/Admin modes unchanged.",
+  "features_verified": {
+    "portfolio_api_enhanced_data": {
+      "status": "PASS",
+      "details": "Returns summary with annual_exposure, annual_recoverable, total_assets, replication patterns, repeatability signals, scaled_outcomes, per-site top_priorities"
+    },
+    "scale_banner_4_columns": {
+      "status": "PASS",
+      "details": "Portfolio VaR ($608/day), Annual Exposure ($222k), Recoverable ($514/day), Portfolio (2 sites, 7 assets)"
+    },
+    "recurring_conditions_section": {
+      "status": "PASS",
+      "details": "DRIFT condition: 5 occurrences, 2 sites, 5 assets, 'Systemic' badge"
+    },
+    "replication_opportunity_section": {
+      "status": "PASS",
+      "details": "Asset-class breakdown with VaR per pattern"
+    },
+    "scalable_impact_section": {
+      "status": "PASS",
+      "details": "Verified savings projected across similar assets (1.3 kWh → 1.3 kWh, 0.9 kWh/hr → 1.8 kWh/hr)"
+    },
+    "site_drilldown_warehouse": {
+      "status": "PASS",
+      "details": "Cold Storage Compressor CRITICAL $340, Rooftop Unit 1 MEDIUM $55"
+    },
+    "site_drilldown_riverside": {
+      "status": "PASS",
+      "details": "Main Air Compressor HIGH $151, Air Handling Unit 1 MEDIUM $43, Process Chiller 1 LOW $19"
+    },
+    "collapse_functionality": {
+      "status": "PASS",
+      "details": "Clicking expanded site card collapses drill-down, 'View priorities' text returns"
+    },
+    "operator_mode_unchanged": {
+      "status": "PASS",
+      "details": "No portfolio elements, shows ranked priorities with WebSocket Live indicator"
+    },
+    "admin_sees_operator_view": {
+      "status": "PASS",
+      "details": "Admin sees operator view (not portfolio view) since has both HOW and WHERE lenses"
+    },
+    "focus_site_callout": {
+      "status": "PASS",
+      "details": "Warehouse Distribution Center with $395/day"
+    }
+  },
+  "var_totals": {
+    "portfolio_total": "$608/day",
+    "annual_exposure": "$222k",
+    "warehouse_site": "$395/day (2 priorities: CRITICAL $340 + MEDIUM $55)",
+    "riverside_site": "$213/day (3 priorities: HIGH $151 + MEDIUM $43 + LOW $19)"
+  }
+}
