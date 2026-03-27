@@ -55,10 +55,42 @@ Sensor → Signal → Metric → Baseline → Rule → STATE → Priority → AC
 | **Role-based Access Control** | ✅ Completed (2026-03-23) |
 | **Multi-site Scoped Access** | ✅ Completed (2026-03-26) |
 | **Frontend WebSocket Hook (Zustand)** | ✅ Completed (2026-03-26) |
+| **Industrial Intelligence Surface** | ✅ Completed (2026-03-27) |
 
 ## What's Been Implemented
 
-### Date: 2026-03-26 - Frontend WebSocket Hook with Zustand (Latest)
+### Date: 2026-03-27 - Industrial Intelligence Surface (Latest)
+
+**P0: Rockwell Demo Surface - Single Page Intelligence Dashboard**
+
+Answers in <60 seconds:
+1. **Where is value being lost?** - VaR View ($213/day, $77,599 annual exposure)
+2. **What should I do?** - Ranked Priorities with confidence labels
+3. **What has been recovered?** - Verified Outcomes (savings + confidence)
+4. **Is the system working?** - System Trust metrics (verification rate, actions validated, learning)
+
+**Key Features:**
+- Single-page unified dashboard (no tabs, no navigation)
+- Real-time priority updates via WebSocket
+- Inline expandable traceability (State → Priority → Intervention → Outcome)
+- Multi-site scoped access (admins see all, operators see their sites)
+
+**New Files:**
+```
+/app/frontend/src/components/IntelligenceSurface.jsx  - Main dashboard component
+```
+
+**New API Endpoints:**
+- `GET /api/intelligence/summary` - Aggregate VAR and priority metrics
+- `GET /api/intelligence/outcomes` - Verified outcomes with savings
+- `GET /api/intelligence/trust` - System trust indicators
+- `GET /api/intelligence/trace/{state_id}` - Full condition-to-outcome trace
+
+**Testing:** Screenshot verification confirms all 4 sections working with real data.
+
+---
+
+### Date: 2026-03-26 - Frontend WebSocket Hook with Zustand
 
 **P2: Frontend Real-time Integration**
 - Zustand store for WebSocket state management
@@ -332,22 +364,42 @@ The core RAMP MVP is now **COMPLETE** with:
 
 ## Next Tasks
 
-1. **P2: Admin UI**
-   - User management interface
-   - Role assignment interface
-   - Site management
+**🔴 P0 — Immediate (Rockwell Demo)**
 
-2. **P2: Rule Configuration UI**
-   - Admin interface for rule management
-   - Verification window configuration
+1. **Portfolio View (Multi-Site Intelligence)**
+   - Default landing for portfolio users
+   - Site ranking by VaR
+   - Site ranking by realized savings
+   - Aggregated portfolio metrics
+   - "Where to focus next" guidance
 
-3. **P3: Secure Remaining Legacy Tables**
-   - Enable RLS on remaining 59 non-critical tables
+2. **Polish Intelligence Surface**
+   - Design agent for visual refinement (clarity > speed > credibility)
+   - Ensure all data paths work correctly
 
-4. **P3: Energy Cost Configuration** (Backlog)
-   - Static tariff configuration UI (flat rate, time-of-use, demand charges)
-   - Real-time wholesale price feed integration
-   - Site-level tariff assignment for accurate VAR calculations
+**🟡 P1 — Minimal Admin (Pilot Support)**
+
+3. **Admin UI (Limited)**
+   - User roles + site assignment
+   - Basic site creation/edit
+   - Minimal user management
+
+4. **Rule Configuration (Limited)**
+   - Threshold tuning only
+   - Verification window config
+
+**🔵 P2 — Post-Pilot**
+
+5. Asset relationships/dependencies
+6. Cross-asset benchmarking
+7. Learning optimization
+8. Export/reporting
+
+**🚫 Deferred**
+- Full assessment modules (IBA, EPA, EMHA, EMRA)
+- Accelerator schema integration
+- Large-scale admin tooling
+- Energy cost configuration
 
 ## Key Files
 

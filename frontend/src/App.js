@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useRAMPWebSocket, useRAMPPriorities } from "./hooks/useRAMPWebSocket";
 import { ConnectionIndicator, ReconnectingBanner } from "./components/ConnectionStatus";
 import { LoginForm, DemoCredentials } from "./components/LoginForm";
+import { IntelligenceSurface } from "./components/IntelligenceSurface";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -640,85 +641,9 @@ function App() {
  * AppContent - The main authenticated content
  */
 function AppContent() {
-  const { isAuthenticated, token, user, signOut, canAccessHOW } = useAuth();
-  const [showLoginModal, setShowLoginModal] = useState(false);
+  const { isAuthenticated } = useAuth();
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
-  
-  // WebSocket connection - only connect if authenticated and has HOW access
-  const { 
-    isConnected, 
-    priorities: wsPriorities,
-    priorityDistribution,
-    totalValueAtRisk: wsValueAtRisk,
-    connect: wsConnect,
-  } = useRAMPWebSocket(canAccessHOW ? token : null, { 
-    autoConnect: canAccessHOW 
-  });
-
-  // Intervention modal state
-  const [selectedPriority, setSelectedPriority] = useState(null);
-  const [showInterventionModal, setShowInterventionModal] = useState(false);
-  const [interventionForm, setInterventionForm] = useState({
-    type: "ADJUSTMENT",
-    description: "",
-  });
-  const [submitting, setSubmitting] = useState(false);
-  const [message, setMessage] = useState(null);
-
-  // Helper to get recommended action based on state type
-  const getRecommendedAction = (priority) => {
-    const stateType = priority.state_type?.toUpperCase() || '';
-    const stateFamily = priority.state_family?.toUpperCase() || '';
-    
-    if (stateType === 'DRIFT' && stateFamily === 'ENERGY') {
-      return 'Check equipment settings and calibration';
-    }
-    if (stateType === 'DEGRADATION') {
-      return 'Schedule maintenance inspection';
-    }
-    if (stateType === 'SPIKE') {
-      return 'Investigate immediate cause';
-    }
-    return 'Review and assess condition';
-  };
-
-  // Create intervention
-  const createIntervention = async () => {
-    if (!selectedPriority) return;
-    
-    setSubmitting(true);
-    try {
-      await axios.post(`${API}/how/interventions`, {
-        state_id: selectedPriority.state_id,
-        intervention_type: interventionForm.type,
-        description: interventionForm.description,
-        created_by: user?.email || "operator@ramp.com",
-      }, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      setMessage({
-        type: "success",
-        text: "Intervention created. Baseline frozen for verification.",
-      });
-      setShowInterventionModal(false);
-      setSelectedPriority(null);
-      setInterventionForm({ type: "ADJUSTMENT", description: "" });
-      // Request resync to get updated priorities
-      requestResync();
-    } catch (e) {
-      setMessage({ type: "error", text: e.response?.data?.detail || "Failed to create intervention" });
-    }
-    setSubmitting(false);
-  };
-
-  // Clear message after 3 seconds
-  useEffect(() => {
-    if (message) {
-      const timer = setTimeout(() => setMessage(null), 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [message]);
 
   // If not authenticated, show login option
   if (!isAuthenticated) {
@@ -730,10 +655,10 @@ function AppContent() {
               RAMP
             </h1>
             <p className="text-xl text-slate-300 mb-2">
-              State-Based Industrial Intelligence
+              Industrial Intelligence
             </p>
             <p className="text-slate-400">
-              Sign in to access real-time monitoring
+              Sign in to access the command centre
             </p>
           </div>
           
@@ -756,6 +681,9 @@ function AppContent() {
       </div>
     );
   }
+
+  // Authenticated - Show Intelligence Surface (Primary Rockwell Demo)
+  return <IntelligenceSurface />;
 
   // Authenticated - show main app with WebSocket integration
   return (
