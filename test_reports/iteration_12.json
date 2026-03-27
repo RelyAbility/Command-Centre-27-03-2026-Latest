@@ -1,0 +1,151 @@
+{
+  "summary": "IBA Refrigeration Portfolio Analysis testing complete. All 31 backend tests passed (100%). All 17 frontend UI tests passed. The deterministic IBA pipeline correctly returns fleet data (400 units, 8 sites, 30 days), state distribution, benchmarks, opportunities, site ranking, RAMP connection, and trust signal. Role-based access works correctly: portfolio user sees IBA, operator does not, admin sees operator view.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iba_refrigeration_analysis.py",
+    "/app/test_reports/pytest/iba_refrigeration_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "IBA pipeline is fully deterministic - same output on every call (cached result)",
+    "Fleet has exactly 400 units across 8 sites with 30-day analysis window",
+    "State distribution is realistic: stable 54.5%, drift 20.2%, idle 9.2%, cycling 9.8%, degraded 6.2%",
+    "Benchmarks correctly validate P25 < P50 < P75 for all metrics",
+    "Top opportunity is Energy Drift Recovery ($47k/mo, 81 assets)",
+    "Site ranking has Warehouse Distribution Center at #1 with ramp_live=true",
+    "RAMP connection shows active CRITICAL priority for Cold Storage Compressor",
+    "Verified outcome shows VFD Coolant Pump with +1.3 kWh saved",
+    "Trust signal text 'Based on measured operating behaviour (no AI inference)' is visible",
+    "Role-based access: portfolio sees IBA, operator gets 403, admin can access but sees operator view in UI"
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iba_refrigeration_analysis.py"
+  ],
+  "success_rate": {
+    "backend": "100% (31/31 tests passed)",
+    "frontend": "100% (all 17 UI scenarios verified)"
+  },
+  "test_credentials": {
+    "admin": {
+      "email": "rampadmin@gmail.com",
+      "password": "RampAdmin2024!",
+      "lens_access": {"how": true, "where": true},
+      "expected_mode": "operator",
+      "iba_api_access": true
+    },
+    "operator": {
+      "email": "operator1@gmail.com",
+      "password": "Operator2024!",
+      "lens_access": {"how": true, "where": false},
+      "expected_mode": "operator",
+      "iba_api_access": false
+    },
+    "portfolio": {
+      "email": "portfolio1@gmail.com",
+      "password": "Portfolio2024!",
+      "lens_access": {"how": false, "where": true},
+      "expected_mode": "portfolio",
+      "iba_api_access": true
+    }
+  },
+  "seed_data_creation": "Demo seed endpoints /api/system/demo/first-five-minutes and /api/system/demo/seed-portfolio create multi-site data with RAMP priorities and verified outcomes",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "IBA Refrigeration Portfolio Analysis fully working. All 17 features verified: (1) IBA API returns fleet data (400 units, 8 sites, 30 days), (2) Analysis is deterministic, (3) State distribution is realistic, (4) Benchmarks validate P25<P50<P75, (5) Top opportunity is Energy Drift Recovery, (6) Warehouse #1 with ramp_live=true, (7) RAMP connection shows CRITICAL Cold Storage Compressor, (8) Verified VFD Coolant Pump outcome, (9) Portfolio sees $91k/30-day and $1.1M annualized, (10) Fleet State Distribution color bar with legend, (11) Top Opportunities ranked by monthly impact, (12) Analysis→Live Detection connector with CRITICAL badge, (13) Sites Ranked by Opportunity with badges, (14) Site drill-down shows inline RAMP priorities, (15) Fleet Benchmarks with P25/P50/P75, (16) Trust signal visible, (17) Operator/Admin modes show no IBA data.",
+  "features_verified": {
+    "iba_api_fleet_data": {
+      "status": "PASS",
+      "details": "Returns fleet.total_units=400, fleet.site_count=8, fleet.analysis_days=30"
+    },
+    "iba_deterministic": {
+      "status": "PASS",
+      "details": "Same output on every call - fleet, state_distribution, benchmarks, opportunities, site_ranking all identical"
+    },
+    "state_distribution_realistic": {
+      "status": "PASS",
+      "details": "stable 54.5%, drift 20.2%, idle 9.2%, cycling 9.8%, degraded 6.2%"
+    },
+    "benchmarks_p25_p50_p75": {
+      "status": "PASS",
+      "details": "Energy Intensity, Runtime Ratio, Cycle Frequency all have P25 < P50 < P75"
+    },
+    "top_opportunity": {
+      "status": "PASS",
+      "details": "Energy Drift Recovery at #1 with $47k/mo, 81 assets"
+    },
+    "warehouse_rank_1": {
+      "status": "PASS",
+      "details": "Warehouse Distribution Center at #1 with ramp_live=true, Top Opportunity badge"
+    },
+    "ramp_connection_critical": {
+      "status": "PASS",
+      "details": "Active detection shows Cold Storage Compressor CRITICAL with $340/day at risk"
+    },
+    "verified_outcome": {
+      "status": "PASS",
+      "details": "VFD Coolant Pump with +1.3 kWh saved, Riverside Plant - Building A"
+    },
+    "portfolio_scale_banner": {
+      "status": "PASS",
+      "details": "$91k/30-day, $1.1M annualized, $608/day Live VaR, $514/day Recoverable"
+    },
+    "fleet_state_distribution_ui": {
+      "status": "PASS",
+      "details": "Color bar with percentages and legend showing all 5 states"
+    },
+    "top_opportunities_ui": {
+      "status": "PASS",
+      "details": "4 opportunities ranked by monthly impact with descriptions"
+    },
+    "analysis_live_detection_connector": {
+      "status": "PASS",
+      "details": "Shows CRITICAL badge, Cold Storage Compressor, VFD Coolant Pump verified outcome"
+    },
+    "sites_ranked_by_opportunity": {
+      "status": "PASS",
+      "details": "8 sites with Warehouse #1, Top Opportunity and RAMP Live badges"
+    },
+    "site_drilldown": {
+      "status": "PASS",
+      "details": "Clicking Warehouse shows Cold Storage Compressor CRITICAL, Rooftop Unit 1 MEDIUM"
+    },
+    "fleet_benchmarks_ui": {
+      "status": "PASS",
+      "details": "Energy Intensity, Runtime Ratio, Cycle Frequency with P25/P50/P75 bars"
+    },
+    "trust_signal": {
+      "status": "PASS",
+      "details": "'Based on measured operating behaviour (no AI inference)' visible"
+    },
+    "operator_no_iba": {
+      "status": "PASS",
+      "details": "Operator sees standard priorities view, no Portfolio Analysis section"
+    },
+    "admin_operator_view": {
+      "status": "PASS",
+      "details": "Admin sees operator view (not portfolio) since has both HOW and WHERE lenses"
+    }
+  },
+  "iba_scale_values": {
+    "total_30day": "$91k",
+    "annualized": "$1.1M",
+    "live_var": "$608/day",
+    "recoverable": "$514/day",
+    "warehouse_monthly": "$19k/mo"
+  },
+  "state_distribution_values": {
+    "stable": {"count": 218, "percent": 54.5},
+    "drift": {"count": 81, "percent": 20.2},
+    "idle": {"count": 37, "percent": 9.2},
+    "cycling": {"count": 39, "percent": 9.8},
+    "degraded": {"count": 25, "percent": 6.2}
+  }
+}

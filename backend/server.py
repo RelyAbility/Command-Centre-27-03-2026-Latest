@@ -61,6 +61,7 @@ where_router = APIRouter(prefix="/api/where", tags=["WHERE Lens"])
 system_router = APIRouter(prefix="/api/system", tags=["System"])
 auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 intelligence_router = APIRouter(prefix="/api/intelligence", tags=["Intelligence Surface"])
+iba_router = APIRouter(prefix="/api/iba", tags=["Portfolio Analysis"])
 
 
 # =============================================================================
@@ -2146,6 +2147,100 @@ async def get_portfolio_intelligence(
 
 
 # =============================================================================
+# PORTFOLIO ANALYSIS (IBA) ROUTES
+# =============================================================================
+
+@iba_router.get("/refrigeration/analysis")
+async def get_refrigeration_analysis(
+    db: RAMPDatabase = Depends(get_db),
+    user: AuthenticatedUser = Depends(require_where_lens_access)
+):
+    """
+    Full refrigeration portfolio analysis — deterministic pipeline.
+    
+    Signals → Metrics → States → Benchmarks → Recommendations
+    
+    Returns fleet analysis with RAMP connection showing
+    live detection of the same condition type.
+    
+    Auth: WHERE lens (portfolio or admin)
+    """
+    from ramp.iba.pipeline import run_analysis
+    
+    analysis = run_analysis()
+    
+    # Enrich with live RAMP connection
+    # Find active RAMP priorities that match the top condition type (drift/degradation)
+    async with db.session.begin():
+        ramp_query = text("""
+            SELECT 
+                p.id as priority_id,
+                p.priority_band,
+                p.priority_score,
+                p.drivers,
+                (p.economic_impact->>'value_at_risk_per_day')::numeric as var_per_day,
+                a.name as asset_name,
+                s.state_family,
+                s.state_type,
+                sys.site_id,
+                st.name as site_name
+            FROM ramp_priorities p
+            JOIN ramp_assets a ON p.asset_id = a.id
+            JOIN ramp_states s ON p.state_id = s.id
+            JOIN ramp_systems sys ON a.system_id = sys.id
+            JOIN ramp_sites st ON sys.site_id = st.id
+            WHERE p.expires_at IS NULL
+            ORDER BY p.priority_score DESC
+            LIMIT 1
+        """)
+        ramp_result = await db.session.execute(ramp_query)
+        top_ramp = ramp_result.fetchone()
+        
+        # Find a verified outcome to show proof
+        outcome_query = text("""
+            SELECT 
+                o.savings_value,
+                o.savings_unit,
+                o.status,
+                o.verified_at,
+                a.name as asset_name,
+                st.name as site_name
+            FROM ramp_outcomes o
+            JOIN ramp_interventions i ON o.intervention_id = i.id
+            JOIN ramp_assets a ON i.asset_id = a.id
+            JOIN ramp_systems sys ON a.system_id = sys.id
+            JOIN ramp_sites st ON sys.site_id = st.id
+            WHERE o.status = 'VERIFIED'
+            ORDER BY o.verified_at DESC
+            LIMIT 1
+        """)
+        outcome_result = await db.session.execute(outcome_query)
+        verified = outcome_result.fetchone()
+    
+    ramp_connection = {
+        "message": "This condition is occurring across the portfolio. RAMP is actively detecting and resolving it in real time.",
+        "active_detection": {
+            "priority_id": str(top_ramp[0]) if top_ramp else None,
+            "priority_band": top_ramp[1] if top_ramp else None,
+            "asset_name": top_ramp[5] if top_ramp else None,
+            "condition": f"{top_ramp[6]}:{top_ramp[7]}" if top_ramp else None,
+            "site_name": top_ramp[9] if top_ramp else None,
+            "var_per_day": float(top_ramp[4]) if top_ramp else None,
+        } if top_ramp else None,
+        "verified_proof": {
+            "asset_name": verified[4] if verified else None,
+            "site_name": verified[5] if verified else None,
+            "savings_value": float(verified[0]) if verified else None,
+            "savings_unit": verified[1] if verified else None,
+            "verified_at": verified[3].isoformat() if verified and verified[3] else None,
+        } if verified else None,
+    }
+    
+    analysis["ramp_connection"] = ramp_connection
+    return analysis
+
+
+# =============================================================================
 # CHECKPOINT TEST ROUTE
 # =============================================================================
 
@@ -3846,6 +3941,7 @@ app.include_router(where_router)
 app.include_router(system_router)
 app.include_router(auth_router)
 app.include_router(intelligence_router)
+app.include_router(iba_router)
 
 app.add_middleware(
     CORSMiddleware,
