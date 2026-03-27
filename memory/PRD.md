@@ -344,6 +344,11 @@ The core RAMP MVP is now **COMPLETE** with:
 3. **P3: Secure Remaining Legacy Tables**
    - Enable RLS on remaining 59 non-critical tables
 
+4. **P3: Energy Cost Configuration** (Backlog)
+   - Static tariff configuration UI (flat rate, time-of-use, demand charges)
+   - Real-time wholesale price feed integration
+   - Site-level tariff assignment for accurate VAR calculations
+
 ## Key Files
 
 ### Backend
